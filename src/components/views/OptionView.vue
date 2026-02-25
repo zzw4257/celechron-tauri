@@ -360,7 +360,10 @@ function handleLogout() {
   color: #1e293b;
 }
 :root.light-theme .option-header h1 {
-  color: #1e293b;
+  background: linear-gradient(135deg, #1e293b, #334155);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 :root.light-theme .group-title {
   color: #334155;

@@ -15,6 +15,11 @@ function handleLoginSuccess() {
 
 <template>
   <main class="app-container">
+    <!-- Global Draggable Titlebar -->
+    <div data-tauri-drag-region class="titlebar">
+      Celechron
+    </div>
+
     <div class="mesh-background" aria-hidden="true">
       <div class="blob blob-1"></div>
       <div class="blob blob-2"></div>
@@ -35,6 +40,26 @@ function handleLoginSuccess() {
   position: relative;
   overflow: hidden;
   background-color: var(--bg-main);
+}
+
+.titlebar {
+  height: 28px;
+  width: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.titlebar:hover {
+  cursor: default;
 }
 
 .mesh-background {

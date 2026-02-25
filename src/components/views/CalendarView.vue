@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { LayoutGrid, CalendarDays, BookOpen, Clock, AlertTriangle } from "lucide-vue-next";
+import { LayoutGrid, CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRange, Hash } from "lucide-vue-next";
 
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 // ZJU 标准 12 节课时间表 (每节独立)
@@ -632,29 +632,29 @@ onMounted(() => {
         </div>
         <div class="detail-rows">
           <div class="detail-row" v-if="selectedCourse.location">
-            <span class="detail-label">📍 教室</span>
+            <span class="detail-label"><MapPin :size="14" style="vertical-align: -2px; margin-right: 4px;" /> 教 室</span>
             <span class="detail-value">{{ selectedCourse.location }}</span>
           </div>
           <div class="detail-row" v-if="selectedCourse.teacher">
-            <span class="detail-label">👤 教师</span>
+            <span class="detail-label"><User :size="14" style="vertical-align: -2px; margin-right: 4px;" /> 教 师</span>
             <span class="detail-value">{{ selectedCourse.teacher }}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">📅 星期</span>
+            <span class="detail-label"><CalendarDays :size="14" style="vertical-align: -2px; margin-right: 4px;" /> 星 期</span>
             <span class="detail-value">{{ weekDays[selectedCourse.dayIdx] }}</span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">⏰ 节次</span>
+            <span class="detail-label"><Clock :size="14" style="vertical-align: -2px; margin-right: 4px;" /> 节 次</span>
             <span class="detail-value">第 {{ selectedCourse.periodIdx + 1 }}-{{ selectedCourse.periodIdx + selectedCourse.span }} 节
               ({{ periods[selectedCourse.periodIdx]?.time.split('-')[0] }}-{{ periods[selectedCourse.periodIdx + selectedCourse.span - 1]?.time.split('-')[1] }})
             </span>
           </div>
           <div class="detail-row">
-            <span class="detail-label">📆 周次</span>
+            <span class="detail-label"><CalendarRange :size="14" style="vertical-align: -2px; margin-right: 4px;" /> 周 次</span>
             <span class="detail-value">{{ formatWeekRanges(selectedCourse.activeWeeks) }}</span>
           </div>
           <div class="detail-row" v-if="selectedCourse.xkkh">
-            <span class="detail-label">🔢 课程号</span>
+            <span class="detail-label"><Hash :size="14" style="vertical-align: -2px; margin-right: 4px;" /> 课程号</span>
             <span class="detail-value" style="font-size: 0.8rem; opacity: 0.7;">{{ selectedCourse.xkkh }}</span>
           </div>
         </div>
@@ -1004,6 +1004,17 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@media (min-width: 900px) {
+  .month-grid-container {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    align-items: flex-start;
+  }
 }
 
 .month-grid {

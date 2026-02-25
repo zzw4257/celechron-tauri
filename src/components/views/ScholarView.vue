@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { use } from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import { LineChart } from 'echarts/charts';
+import { GridComponent, TooltipComponent, TitleComponent, LegendComponent } from 'echarts/components';
+import VChart from 'vue-echarts';
+import { useTheme } from "../../composables/useTheme";
+
+use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, TitleComponent, LegendComponent]);
+
+const { isLightMode } = useTheme();
 
 const isLoading = ref(true);
 const errorMsg = ref("");
@@ -58,6 +68,105 @@ const majorCourseIds = ref(new Set<string>());
 
 const simulatedScores = ref<Record<string, number>>({});
 
+function getGpaFallback(s: any, idx: number) {
+  if (s.gpaArr && s.gpaArr[idx] && s.gpaArr[idx] > 0) return s.gpaArr[idx];
+  let gpaC = 0, weightG = 0;
+  (s.grades || []).forEach((g: any) => {
+    let c = g.credit || g.xf || 0;
+    let val = idx === 0 ? (g.fivePoint || 0) : (g.fourPoint || 0);
+    let cj = g.cj?.toString().trim() || "";
+    
+    let countsForGpa = false;
+    if (["不及格", "F", "及格", "中等", "良好", "优秀"].includes(cj) || !isNaN(parseFloat(cj))) {
+        countsForGpa = true;
+    }
+    
+    if (c > 0 && countsForGpa) {
+      gpaC += c;
+      weightG += c * val;
+    }
+  });
+  return gpaC > 0 ? weightG / gpaC : 0;
+}
+
+const semesterGpa = ref([0, 0]);
+
+const chartOption = computed(() => {
+  if (semestersList.value.length === 0) return {};
+  const semesters = [...semestersList.value].reverse();
+  const xAxisData = semesters.map(s => s.name);
+
+  const data5 = semesters.map(s => parseFloat(getGpaFallback(s, 0).toFixed(2)));
+  const data43 = semesters.map(s => parseFloat(getGpaFallback(s, 1).toFixed(2)));
+  
+  const textColor = isLightMode.value ? '#475569' : '#cbd5e1';
+  const splitLineColor = isLightMode.value ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+  const tooltipBg = isLightMode.value ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.9)';
+  const tooltipBorder = isLightMode.value ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)';
+  const tooltipText = isLightMode.value ? '#1e293b' : '#f8fafc';
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: tooltipText },
+      padding: [12, 16],
+      borderRadius: 12,
+      axisPointer: { type: 'line', lineStyle: { color: tooltipBorder } }
+    },
+    legend: {
+      data: ['五分制', '四分制(4.3)'],
+      bottom: 0,
+      textStyle: { color: textColor },
+      icon: 'circle',
+      itemWidth: 10,
+    },
+    grid: {
+      left: '2%',
+      right: '4%',
+      bottom: '12%',
+      top: '10%',
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: xAxisData,
+      axisLabel: { color: textColor, margin: 12 },
+      axisLine: { lineStyle: { color: splitLineColor } },
+      axisTick: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      min: 'dataMin',
+      max: function (value: any) { return Math.min(5.0, value.max + 0.2); },
+      axisLabel: { color: textColor },
+      splitLine: { lineStyle: { color: splitLineColor } },
+    },
+    series: [
+      {
+        name: '五分制',
+        type: 'line',
+        data: data5,
+        smooth: true,
+        symbolSize: 8,
+        itemStyle: { color: '#0ea5e9', shadowColor: 'rgba(14, 165, 233, 0.4)', shadowBlur: 10 },
+        lineStyle: { width: 3, shadowColor: 'rgba(14, 165, 233, 0.3)', shadowBlur: 10, shadowOffsetY: 5 },
+      },
+      {
+        name: '四分制(4.3)',
+        type: 'line',
+        data: data43,
+        smooth: true,
+        symbolSize: 8,
+        itemStyle: { color: '#22c55e', shadowColor: 'rgba(34, 197, 94, 0.4)', shadowBlur: 10 },
+        lineStyle: { width: 3, shadowColor: 'rgba(34, 197, 94, 0.3)', shadowBlur: 10, shadowOffsetY: 5 },
+      }
+    ]
+  };
+});
+
 function toFivePoint(score: number): number {
   if (score >= 95) return 5.0;
   if (score >= 90) return 4.5;
@@ -89,13 +198,15 @@ function toFourPointLegacy(fiveP: number): number {
 }
 
 const customGpa = computed(() => {
-  let totalCredits = 0;
+  let totalEarnedCredits = 0;
+  let gpaCredits = 0;
   let weightedFive = 0;
   let weightedFour = 0;
   let weightedLegacy = 0;
   let weightedHundred = 0;
   
-  let majorCredits = 0;
+  let majorEarnedCredits = 0;
+  let majorGpaCredits = 0;
   let majorWeightedFour = 0;
   let majorWeightedLegacy = 0;
   
@@ -105,54 +216,88 @@ const customGpa = computed(() => {
     sem.grades.forEach((g: any) => {
       // Only include if selected and it's a valid GPA course
       if (customGpaSelected.value.has(g.xkkh)) {
-        let credit = g.credit || 0;
+        let credit = g.credit || g.xf || 0;
         let fiveP = g.fivePoint || 0;
         let fourP = g.fourPoint || 0;
         let legacyP = g.fourPointLegacy || 0;
         let hundredP = g.hundredPoint || 0;
         
-        let cj = g.cj || "";
+        let cj = g.cj?.toString().trim() || "";
         
+        // Patch hundredPoint for specific text grades
+        if (cj === "优秀" && hundredP === 0) hundredP = 89;
+        else if (cj === "良好" && hundredP === 0) hundredP = 79;
+        else if (cj === "中等" && hundredP === 0) hundredP = 69;
+        else if (cj === "及格" && hundredP === 0) hundredP = 60;
+        else if (cj === "不及格" && hundredP === 0) hundredP = 50;
+
+        let earnsCredit = false;
+        let countsForGpa = false;
+
         if (["待录", "缓考", "无效"].includes(cj)) {
            if (simulatedScores.value[g.xkkh] !== undefined) {
                hundredP = simulatedScores.value[g.xkkh] || 0;
                fiveP = toFivePoint(hundredP);
                fourP = toFourPoint43(fiveP);
                legacyP = toFourPointLegacy(fiveP);
+               earnsCredit = hundredP >= 60;
+               countsForGpa = true;
            } else {
-               return; // Skip if no simulated prediction
+               countsForGpa = false;
+               earnsCredit = false;
            }
-        } else if (["弃修", "合格", "不合格"].includes(cj)) {
-            return;
+        } else if (["不及格", "F"].includes(cj)) {
+            earnsCredit = false;
+            countsForGpa = true;
+        } else if (["弃修"].includes(cj)) {
+            earnsCredit = false;
+            countsForGpa = false;
+        } else if (["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "合格", "免修", "免考"].includes(cj)) {
+            earnsCredit = true;
+            countsForGpa = false;
+        } else {
+            let numericVal = parseFloat(cj);
+            if (!isNaN(numericVal) && numericVal < 60) {
+               earnsCredit = false;
+               countsForGpa = true;
+            } else {
+               earnsCredit = true;
+               countsForGpa = true;
+            }
         }
 
         if (credit > 0) {
-            totalCredits += credit;
-            weightedFive += credit * fiveP;
-            weightedFour += credit * fourP;
-            weightedLegacy += credit * legacyP;
-            weightedHundred += credit * hundredP;
-          if (majorCourseIds.value.has(g.xkkh)) {
-             majorCredits += credit;
-             majorWeightedFour += credit * fourP;
-             majorWeightedLegacy += credit * legacyP;
-          }
+            if (earnsCredit) {
+               totalEarnedCredits += credit;
+               if (majorCourseIds.value.has(g.xkkh)) majorEarnedCredits += credit;
+            }
+            if (countsForGpa) {
+               gpaCredits += credit;
+               weightedFive += credit * fiveP;
+               weightedFour += credit * fourP;
+               weightedLegacy += credit * legacyP;
+               weightedHundred += credit * hundredP;
+               
+               if (majorCourseIds.value.has(g.xkkh)) {
+                   majorGpaCredits += credit;
+                   majorWeightedFour += credit * fourP;
+                   majorWeightedLegacy += credit * legacyP;
+               }
+            }
         }
       }
     });
   });
   
-  if (totalCredits === 0) return { fivePoint: 0, fourPoint: 0, fourPointLegacy: 0, hundredPoint: 0, totalCredits: 0, majorGpa: 0, majorGpaLegacy: 0, majorCredits: 0 };
-  
   return {
-    fivePoint: weightedFive / totalCredits,
-    fourPoint: weightedFour / totalCredits,
-    fourPointLegacy: weightedLegacy / totalCredits,
-    hundredPoint: weightedHundred / totalCredits,
-    totalCredits: totalCredits,
-    majorGpa: majorCredits > 0 ? majorWeightedFour / majorCredits : 0,
-    majorGpaLegacy: majorCredits > 0 ? majorWeightedLegacy / majorCredits : 0,
-    majorCredits: majorCredits
+    fivePoint: gpaCredits > 0 ? weightedFive / gpaCredits : 0,
+    fourPoint: gpaCredits > 0 ? weightedFour / gpaCredits : 0,
+    fourPointLegacy: gpaCredits > 0 ? weightedLegacy / gpaCredits : 0,
+    hundredPoint: gpaCredits > 0 ? weightedHundred / gpaCredits : 0,
+    totalCredits: totalEarnedCredits,
+    majorGpa: majorGpaCredits > 0 ? majorWeightedFour / majorGpaCredits : 0,
+    majorGpaLegacy: majorGpaCredits > 0 ? majorWeightedLegacy / majorGpaCredits : 0,
+    majorCredits: majorEarnedCredits
   };
 });
 
@@ -187,8 +332,24 @@ function selectSemester(index: number) {
   const items = semestersList.value[index];
   semester.value.name = items.name;
   semester.value.courseCount = items.grades.length;
-  semester.value.courseCredits = items.credits;
-  semester.value.gpaArr = items.gpa;
+  // Calculate exact earned credits for the semester instead of relying on the API's sum which might include dropped courses
+  let earned = 0;
+  items.grades.forEach((g: any) => {
+     let cj = g.cj?.toString().trim() || "";
+     let credit = g.credit || g.xf || 0;
+     let isPass = false;
+     if (["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "合格", "免修", "免考", "及格", "中等", "良好", "优秀"].includes(cj)) {
+         isPass = true;
+     } else {
+         let numericVal = parseFloat(cj);
+         if (!isNaN(numericVal) && numericVal >= 60) {
+             isPass = true;
+         }
+     }
+     if (isPass) earned += credit;
+  });
+  semester.value.courseCredits = earned;
+  semesterGpa.value = [getGpaFallback(items, 0), getGpaFallback(items, 1)];
 }
 
 function exportToCSV() {
@@ -218,7 +379,11 @@ function exportToCSV() {
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
   link.setAttribute("href", encodedUri);
-  link.setAttribute("download", `成绩单导出_${new Date().toISOString().split('T')[0]}.csv`);
+  
+  const now = new Date();
+  const timeStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+  link.setAttribute("download", `成绩单导出_${timeStr}.csv`);
+  
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -400,6 +565,19 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- GPA Trend Chart Section -->
+    <section class="section-card" v-if="semestersList.length > 0">
+      <div class="section-header">
+        <span class="section-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+        </span>
+        <span class="section-title">历年均绩趋势</span>
+      </div>
+      <div class="chart-container" style="height: 300px; width: 100%; margin-top: 1rem;">
+        <v-chart class="chart" :option="chartOption" autoresize />
+      </div>
+    </section>
+
     <!-- Semester Section -->
     <section class="section-card">
       <div class="section-header">
@@ -433,16 +611,12 @@ onMounted(() => {
           <span class="stat-label">学期学分</span>
         </div>
         <div class="stat-item">
-          <span class="stat-value">{{ semester.gpaArr[0].toFixed(2) }}</span>
+          <span class="stat-value">{{ semesterGpa[0].toFixed(2) }}</span>
           <span class="stat-label">学期五分制</span>
         </div>
         <div class="stat-item">
-          <span class="stat-value">{{ semester.gpaArr[1].toFixed(2) }}</span>
+          <span class="stat-value">{{ semesterGpa[1].toFixed(2) }}</span>
           <span class="stat-label">学期(4.3)</span>
-        </div>
-        <div class="stat-item" v-if="selectedSemesterIndex === 0">
-          <span class="stat-value highlight-red">{{ semester.examCount }}</span>
-          <span class="stat-label">考试</span>
         </div>
       </div>
 
@@ -476,7 +650,7 @@ onMounted(() => {
             <span>学分: {{ course.credit }}</span>
             <span>五分: {{ course.fivePoint?.toFixed(2) }}</span>
             <span>四分(4.3): {{ course.fourPoint?.toFixed(2) }}</span>
-            <span>类别: {{ course.kcxzmc }}</span>
+            <span>类别: {{ course.kcxzmc || course.kclbmc || '未知' }}</span>
           </div>
         </div>
       </div>
@@ -1009,7 +1183,21 @@ onMounted(() => {
 
 /* ── ScholarView Light Mode Overrides ── */
 :root.light-theme .scholar-header h1 {
+  background: linear-gradient(135deg, #1e293b, #334155);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+:root.light-theme .rule-content {
+  color: #475569;
+  background: rgba(0,0,0,0.03);
+}
+:root.light-theme .rule-content strong {
   color: #1e293b;
+}
+:root.light-theme .formula {
+  color: #64748b !important;
+  border-top-color: rgba(0,0,0,0.1);
 }
 :root.light-theme .offline-banner {
   background: rgba(245, 158, 11, 0.1);
@@ -1068,23 +1256,24 @@ onMounted(() => {
 :root.light-theme .stat-label {
   color: #64748b;
 }
-:root.light-theme .course-card {
+:root.light-theme .course-item-card {
   background: rgba(0,0,0,0.03);
   border-color: rgba(0,0,0,0.05);
 }
-:root.light-theme .course-top {
+:root.light-theme .course-item-header {
   border-bottom-color: rgba(0,0,0,0.05);
 }
-:root.light-theme .course-name {
+:root.light-theme .course-item-name {
   color: #1e293b;
 }
-:root.light-theme .course-score {
+:root.light-theme .course-item-score {
   color: #16a34a;
 }
-:root.light-theme .course-score.low-score {
+:root.light-theme .course-item-score.failed {
   color: #dc2626;
 }
-:root.light-theme .course-info span {
+:root.light-theme .course-item-details,
+:root.light-theme .course-item-details span {
   color: #64748b;
 }
 :root.light-theme .exam-card {
