@@ -5,6 +5,21 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Tauri + Vue + Typescript App</title>
+    <script>
+      window.onerror = function(message, source, lineno, colno, error) {
+        document.body.innerHTML += `<div style="position:fixed;top:0;left:0;z-index:9999;background:red;color:white;padding:20px;width:100%;font-family:monospace;overflow:auto;max-height:100vh;">
+          <h3>FATAL JS ERROR</h3>
+          <p>${message}</p>
+          <pre>${error ? error.stack : ''}</pre>
+        </div>`;
+      };
+      window.addEventListener('unhandledrejection', function(event) {
+        document.body.innerHTML += `<div style="position:fixed;top:0;left:0;z-index:9999;background:orange;color:white;padding:20px;width:100%;font-family:monospace;overflow:auto;max-height:100vh;">
+          <h3>UNHANDLED PROMISE REJECTION</h3>
+          <p>${event.reason}</p>
+        </div>`;
+      });
+    </script>
   </head>
 
   <body>

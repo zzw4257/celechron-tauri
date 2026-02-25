@@ -1,61 +1,99 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import Login from "./components/Login.vue";
+import MainLayout from "./components/MainLayout.vue";
+import { useTheme } from "./composables/useTheme";
+
+const { applyTheme, currentTheme } = useTheme();
+applyTheme(currentTheme.value);
+
+const isLoggedIn = ref(false);
+function handleLoginSuccess() {
+  isLoggedIn.value = true;
+}
 </script>
 
 <template>
   <main class="app-container">
-    <div class="blob blob-1"></div>
-    <div class="blob blob-2"></div>
-    <Login />
+    <div class="mesh-background" aria-hidden="true">
+      <div class="blob blob-1"></div>
+      <div class="blob blob-2"></div>
+      <div class="blob blob-3"></div>
+      <div class="blob blob-4"></div>
+    </div>
+    <div class="app-ui-layer">
+      <Login v-if="!isLoggedIn" @login-success="handleLoginSuccess" />
+      <MainLayout v-else />
+    </div>
   </main>
 </template>
 
 <style scoped>
 .app-container {
-  min-height: 100vh;
+  height: 100vh;
   width: 100vw;
   position: relative;
   overflow: hidden;
-  background-color: #0f172a;
+  background-color: var(--bg-main);
 }
 
-/* Background animated blobs for a premium aesthetic */
+.mesh-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
 .blob {
   position: absolute;
   border-radius: 50%;
   filter: blur(80px);
-  opacity: 0.6;
-  z-index: 0;
   animation: float 20s infinite ease-in-out alternate;
 }
 
 .blob-1 {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, #3b82f6 0%, transparent 70%);
-  top: -100px;
-  left: -100px;
+  width: 60vw; height: 60vw;
+  background: radial-gradient(circle, var(--blob-1) 0%, transparent 70%);
+  top: -20vh; left: -10vw;
+  opacity: 0.7;
   animation-delay: 0s;
 }
-
 .blob-2 {
-  width: 500px;
-  height: 500px;
-  background: radial-gradient(circle, #8b5cf6 0%, transparent 70%);
-  bottom: -150px;
-  right: -100px;
+  width: 50vw; height: 50vw;
+  background: radial-gradient(circle, var(--blob-2) 0%, transparent 70%);
+  bottom: -20vh; right: -10vw;
+  opacity: 0.7;
   animation-delay: -5s;
+}
+.blob-3 {
+  width: 55vw; height: 55vw;
+  background: radial-gradient(circle, var(--blob-3) 0%, transparent 70%);
+  top: 30vh; left: 40vw;
+  opacity: 0.6;
+  animation-delay: -10s;
+  animation-duration: 25s;
+}
+.blob-4 {
+  width: 45vw; height: 45vw;
+  background: radial-gradient(circle, var(--blob-4) 0%, transparent 70%);
+  top: 10vh; right: 20vw;
+  opacity: 0.5;
+  animation-delay: -15s;
+  animation-duration: 22s;
+}
+
+.app-ui-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
 }
 
 @keyframes float {
-  0% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(50px, 30px) scale(1.1);
-  }
-  100% {
-    transform: translate(-30px, 80px) scale(0.9);
-  }
+  0%   { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(4vw, 4vh) scale(1.08); }
+  66%  { transform: translate(-4vw, 6vh) scale(0.94); }
+  100% { transform: translate(-2vw, -3vh) scale(1.04); }
 }
 </style>

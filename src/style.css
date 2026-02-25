@@ -1,47 +1,170 @@
+/* ============================================
+   CELECHRON DESIGN TOKEN SYSTEM
+   Strategy: Default = LIGHT THEME
+   Dark mode: :root.dark-theme overrides
+   ============================================ */
+
 :root {
   font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  color-scheme: dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #0f172a;
-
+  color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* ── App Background ── */
+  --bg-main: #f0f4f8;
+  /* soft slate-100 background */
+
+  /* ── Text ── */
+  --text-main: #0f172a;
+  /* slate-900 — near-black, max contrast */
+  --text-muted: #64748b;
+  /* slate-500 — readable subdued */
+  --text-inverse: #ffffff;
+
+  /* ── Cards / Panels ── */
+  --card-bg: rgba(255, 255, 255, 0.80);
+  --card-border: rgba(0, 0, 0, 0.08);
+  --panel-bg: rgba(255, 255, 255, 0.65);
+  --panel-border: rgba(0, 0, 0, 0.06);
+
+  /* ── Navigation ── */
+  --nav-bg: rgba(255, 255, 255, 0.80);
+  --nav-border: rgba(0, 0, 0, 0.08);
+  --nav-text: #64748b;
+  --nav-text-hover: #0f172a;
+  --nav-hover-bg: rgba(0, 0, 0, 0.05);
+  --nav-icon-shadow: rgba(0, 122, 255, 0.25);
+  --nav-shadow: rgba(0, 0, 0, 0.06);
+
+  /* ── Accent ── */
+  --accent-blue: #0284c7;
+  /* sky-600 */
+  --accent-blue-light: #e0f2fe;
+  /* sky-100 */
+  --accent-green: #16a34a;
+  --accent-red: #dc2626;
+  --accent-amber: #d97706;
+
+  /* ── Form Inputs ── */
+  --input-bg: rgba(0, 0, 0, 0.04);
+  --input-border: rgba(0, 0, 0, 0.15);
+  --input-color: #0f172a;
+
+  /* ── Blobs (background colors) ── */
+  --blob-1: #7dd3fc;
+  /* sky-300 */
+  --blob-2: #c4b5fd;
+  /* violet-300 */
+  --blob-3: #93c5fd;
+  /* blue-300 */
+  --blob-4: #f9a8d4;
+  /* pink-300 */
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-height: 100vh;
-  width: 100vw;
-  overflow-x: hidden;
+/* ── Dark Theme Overrides ── */
+:root.dark-theme {
+  color-scheme: dark;
+
+  --bg-main: #0f172a;
+  /* slate-900 */
+
+  --text-main: rgba(255, 255, 255, 0.92);
+  --text-muted: #94a3b8;
+  /* slate-400 */
+  --text-inverse: #0f172a;
+
+  --card-bg: rgba(30, 41, 59, 0.85);
+  /* slate-800 */
+  --card-border: rgba(255, 255, 255, 0.08);
+  --panel-bg: rgba(15, 23, 42, 0.70);
+  --panel-border: rgba(255, 255, 255, 0.06);
+
+  --nav-bg: rgba(15, 23, 42, 0.85);
+  --nav-border: rgba(255, 255, 255, 0.08);
+  --nav-text: #94a3b8;
+  --nav-text-hover: #f1f5f9;
+  --nav-hover-bg: rgba(255, 255, 255, 0.06);
+  --nav-icon-shadow: rgba(56, 189, 248, 0.40);
+  --nav-shadow: rgba(0, 0, 0, 0.25);
+
+  --accent-blue: #38bdf8;
+  /* sky-400 */
+  --accent-blue-light: rgba(56, 189, 248, 0.15);
+  --accent-green: #4ade80;
+  --accent-red: #f87171;
+  --accent-amber: #fbbf24;
+
+  --input-bg: rgba(255, 255, 255, 0.07);
+  --input-border: rgba(255, 255, 255, 0.12);
+  --input-color: #f1f5f9;
+
+  --blob-1: #0e7490;
+  --blob-2: #5b21b6;
+  --blob-3: #1d4ed8;
+  --blob-4: #9d174d;
 }
 
+/* ── Light Theme Variable Overrides ── */
+:root.light-theme {
+  color-scheme: light;
+
+  --bg-main: #f0f4f8;
+
+  --text-main: #1e293b;
+  /* slate-800 */
+  --text-muted: #64748b;
+  /* slate-500 */
+  --text-inverse: #ffffff;
+
+  --card-bg: rgba(255, 255, 255, 0.75);
+  --card-border: rgba(0, 0, 0, 0.08);
+  --panel-bg: rgba(255, 255, 255, 0.65);
+  --panel-border: rgba(0, 0, 0, 0.06);
+
+  --nav-bg: rgba(255, 255, 255, 0.85);
+  --nav-border: rgba(0, 0, 0, 0.08);
+  --nav-text: #64748b;
+  --nav-text-hover: #1e293b;
+  --nav-hover-bg: rgba(0, 0, 0, 0.04);
+  --nav-icon-shadow: rgba(2, 132, 199, 0.30);
+  --nav-shadow: rgba(0, 0, 0, 0.08);
+
+  --accent-blue: #0284c7;
+  /* sky-600 — darker for light bg */
+  --accent-blue-light: rgba(2, 132, 199, 0.10);
+  --accent-green: #16a34a;
+  --accent-red: #dc2626;
+  --accent-amber: #d97706;
+
+  --input-bg: rgba(0, 0, 0, 0.04);
+  --input-border: rgba(0, 0, 0, 0.12);
+  --input-color: #1e293b;
+}
+
+/* ── Reset ── */
+html,
+body,
 #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
   width: 100%;
+  overflow: hidden;
+  background-color: var(--bg-main);
+  color: var(--text-main);
 }
 
 * {
   box-sizing: border-box;
 }
 
-/* Base custom scrollbar */
+/* ── Scrollbar ── */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.3);
+  width: 0;
+  height: 0;
+  display: none;
 }

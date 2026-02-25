@@ -2,22 +2,26 @@
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
+const emit = defineEmits(['login-success']);
+
 const username = ref("***REMOVED***");
 const password = ref("***REMOVED***");
 const status = ref("");
 const isLoading = ref(false);
-const isLoggedIn = ref(false);
 
 async function login() {
   if (!username.value || !password.value) return;
   isLoading.value = true;
-  status.value = "Authenticating...";
+  status.value = "正在认证...";
   try {
+    if (!(window as any).__TAURI_INTERNALS__) {
+      throw new Error("请通过 Tauri 桌面环境启动");
+    }
     const res = await invoke("login_zju_command", { username: username.value, password: password.value });
     status.value = res as string;
-    isLoggedIn.value = true;
-  } catch (err: unknown) {
-    status.value = typeof err === "string" ? err : "An error occurred during login";
+    emit('login-success');
+  } catch (err: any) {
+    status.value = typeof err === "string" ? err : (err.message || "登录失败");
   } finally {
     isLoading.value = false;
   }
@@ -25,214 +29,272 @@ async function login() {
 </script>
 
 <template>
-  <div class="login-wrapper">
-    <div class="glass-card">
-      <div class="logo-container">
-        <h1>Celechron</h1>
-        <p class="subtitle">Time scheduler for ZJUers</p>
+  <div class="login-scene">
+    <div class="login-card">
+      <!-- Logo -->
+      <div class="logo-section">
+        <div class="logo-icon">⏱</div>
+        <h1 class="logo-text">Celechron</h1>
+        <p class="logo-sub">浙大时间管理助手</p>
       </div>
-      <form class="login-form" @submit.prevent="login" v-if="!isLoggedIn">
-        <div class="input-group">
-          <label>ZJU ID</label>
-          <input id="username-input" v-model="username" type="text" placeholder="Enter ZJU ID..." />
+
+      <!-- Form -->
+      <form class="login-form" @submit.prevent="login" novalidate>
+        <div class="field">
+          <label class="field-label">ZJU 学号</label>
+          <div class="field-input-wrap">
+            <input
+              id="username-input"
+              v-model="username"
+              type="text"
+              class="field-input"
+              placeholder="请输入学号"
+              autocomplete="username"
+            />
+          </div>
         </div>
-        <div class="input-group">
-          <label>Password</label>
-          <input id="password-input" v-model="password" type="password" placeholder="Enter Password..." />
+
+        <div class="field">
+          <label class="field-label">密码</label>
+          <div class="field-input-wrap">
+            <input
+              id="password-input"
+              v-model="password"
+              type="password"
+              class="field-input"
+              placeholder="请输入密码"
+              autocomplete="current-password"
+            />
+          </div>
         </div>
-        <button type="submit" :disabled="isLoading" class="btn-primary">
-          <span v-if="!isLoading">Login</span>
-          <span v-else class="loader"></span>
+
+        <button type="submit" :disabled="isLoading" class="btn-login">
+          <span v-if="!isLoading">登录</span>
+          <span v-else class="spinner"></span>
         </button>
-        <p class="status-msg" :class="{ error: status.includes('failed') || status.includes('error') }">{{ status }}</p>
+
+        <div class="status-row">
+          <p v-if="status" class="status-text" :class="{ error: status.includes('失败') || status.includes('Error') || status.includes('error') }">
+            {{ status }}
+          </p>
+        </div>
       </form>
-      <div v-else class="dashboard-preview">
-        <h2>Welcome back!</h2>
-        <p>Login was successful. Core features will be displayed here.</p>
-        <button @click="isLoggedIn = false; status = ''" class="btn-secondary">Log Out</button>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.login-wrapper {
+/* ─── Layout ─── */
+.login-scene {
   display: flex;
-  justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  justify-content: center;
+  height: 100%;
   width: 100%;
+  padding: 2rem;
 }
 
-.glass-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 3rem;
-  border-radius: 24px;
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+/* ─── Card — SOLID so no WKWebView blending artifacts ─── */
+.login-card {
   width: 100%;
   max-width: 400px;
+  border-radius: 24px;
+  padding: 2.8rem 2.4rem 2.4rem;
   display: flex;
   flex-direction: column;
   gap: 2rem;
-  animation: fade-in 0.6s ease-out;
+
+  /* Light mode: crisp white with depth shadow */
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.04),
+    0 8px 24px rgba(0,0,0,0.10),
+    0 24px 64px rgba(0,0,0,0.08);
 }
 
-.logo-container {
+:global(.dark-theme) .login-card {
+  background: #1e293b;   /* slate-800 */
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 2px 4px rgba(0,0,0,0.2),
+    0 8px 24px rgba(0,0,0,0.3),
+    0 24px 64px rgba(0,0,0,0.4);
+}
+
+/* ─── Logo ─── */
+.logo-section {
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
 }
 
-.logo-container h1 {
+.logo-icon {
+  font-size: 2.4rem;
+  line-height: 1;
+  margin-bottom: 0.2rem;
+}
+
+.logo-text {
   margin: 0;
-  font-size: 2.5rem;
-  background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-size: 2rem;
   font-weight: 800;
   letter-spacing: -1px;
+  color: #0284c7;           /* sky-600 — always visible */
+  line-height: 1.1;
 }
 
-.subtitle {
-  color: #a0a5b1;
-  font-size: 0.95rem;
-  margin-top: 0.5rem;
+:global(.dark-theme) .logo-text {
+  color: #38bdf8;           /* sky-400 */
 }
 
+.logo-sub {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+:global(.dark-theme) .logo-sub {
+  color: #94a3b8;
+}
+
+/* ─── Form ─── */
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.2rem;
 }
 
-.input-group {
+.field {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  text-align: left;
+  gap: 0.4rem;
 }
 
-.input-group label {
-  font-size: 0.85rem;
+.field-label {
+  font-size: 0.78rem;
   font-weight: 600;
-  color: #d1d5db;
-  text-transform: uppercase;
   letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #64748b;
+  padding-left: 2px;
 }
 
-input {
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  padding: 1rem;
-  color: #fff;
-  font-size: 1rem;
+:global(.dark-theme) .field-label {
+  color: #94a3b8;
+}
+
+.field-input-wrap {
+  position: relative;
+}
+
+.field-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
   font-family: inherit;
-  transition: all 0.3s ease;
+  border-radius: 10px;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+
+  /* Light */
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  color: #0f172a;
 }
 
-input:focus {
-  border-color: #4facfe;
-  background: rgba(0, 0, 0, 0.4);
-  box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.3);
+.field-input::placeholder { color: #94a3b8; }
+
+.field-input:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+  background: #ffffff;
 }
 
-.btn-primary {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  color: #fff;
-  border: none;
+:global(.dark-theme) .field-input {
+  background: #0f172a;
+  border: 1.5px solid #334155;
+  color: #f1f5f9;
+}
+:global(.dark-theme) .field-input::placeholder { color: #64748b; }
+:global(.dark-theme) .field-input:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+  background: #0f172a;
+}
+
+/* ─── Button ─── */
+.btn-login {
+  width: 100%;
+  padding: 0.85rem;
   border-radius: 12px;
-  padding: 1rem;
-  font-size: 1rem;
-  font-weight: 600;
+  border: none;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: 0.2px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
   display: flex;
-  justify-content: center;
   align-items: center;
-  min-height: 52px;
+  justify-content: center;
+  min-height: 46px;
+  margin-top: 0.4rem;
 }
 
-.btn-primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
+.btn-login:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.4);
 }
 
-.btn-primary:active:not(:disabled) {
+.btn-login:active:not(:disabled) {
   transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);
 }
 
-.btn-primary:disabled {
-  opacity: 0.7;
+.btn-login:disabled {
+  opacity: 0.6;
   cursor: not-allowed;
 }
 
-.btn-secondary {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  padding: 0.8rem 1.5rem;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.loader {
-  width: 20px;
-  height: 20px;
-  border: 3px solid rgba(255, 255, 255, 0.3);
-  border-radius: 50%;
+/* ─── Spinner ─── */
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255,255,255,0.4);
   border-top-color: #fff;
-  animation: spin 1s ease-in-out infinite;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
 }
 
-.status-msg {
-  font-size: 0.9rem;
-  color: #4ade80;
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─── Status ─── */
+.status-row {
   min-height: 1.2rem;
   text-align: center;
-  transition: color 0.3s;
+  margin-top: -0.4rem;
 }
 
-.status-msg.error {
-  color: #f87171;
-}
-
-.dashboard-preview {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  animation: fade-in 0.4s ease-out;
-}
-
-.dashboard-preview h2 {
-  color: #4ade80;
+.status-text {
   margin: 0;
+  font-size: 0.83rem;
+  font-weight: 500;
+  color: #0284c7;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.status-text.error {
+  color: #dc2626;
 }
 
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
+:global(.dark-theme) .status-text { color: #38bdf8; }
+:global(.dark-theme) .status-text.error { color: #f87171; }
 </style>

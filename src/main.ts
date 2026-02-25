@@ -1,3 +1,5 @@
+import "./init";
+import "./style.css";
 import { createApp } from "vue";
 import App from "./App.vue";
 
