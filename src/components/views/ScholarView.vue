@@ -51,15 +51,102 @@ const lastUpdate = ref("正在同步...");
 const isOffline = ref(false);
 const offlineTime = ref("");
 
+const overallGpa = computed(() => {
+  let totalEarnedCredits = 0;
+  let gpaCredits = 0;
+  let weightedFive = 0;
+  let weightedFour = 0;
+  let weightedLegacy = 0;
+  let weightedHundred = 0;
+  let majorEarnedCredits = 0;
+  let majorGpaCredits = 0;
+  let majorWeightedFour = 0;
+  let majorWeightedLegacy = 0;
+
+  if (!semestersList.value) return { fivePoint: 0, fourPoint: 0, fourPointLegacy: 0, hundredPoint: 0, totalCredits: 0, majorGpa: 0, majorGpaLegacy: 0, majorCredits: 0 };
+
+  semestersList.value.forEach(sem => {
+    sem.grades.forEach((g: any) => {
+      let credit = g.credit || g.xf || 0;
+      let fiveP = g.fivePoint || 0;
+      let fourP = g.fourPoint || 0;
+      let legacyP = g.fourPointLegacy || 0;
+      let hundredP = g.hundredPoint || 0;
+      let cj = g.cj?.toString().trim() || "";
+
+      if (cj === "优秀" && hundredP === 0) hundredP = 89;
+      else if (cj === "良好" && hundredP === 0) hundredP = 79;
+      else if (cj === "中等" && hundredP === 0) hundredP = 69;
+      else if (cj === "及格" && hundredP === 0) hundredP = 60;
+      else if (cj === "不及格" && hundredP === 0) hundredP = 50;
+
+      let earnsCredit = false;
+      let countsForGpa = false;
+
+      if (["待录", "缓考", "无效"].includes(cj)) {
+        return;
+      } else if (["不及格", "F"].includes(cj)) {
+        earnsCredit = false;
+        countsForGpa = true;
+      } else if (["弃修"].includes(cj)) {
+        earnsCredit = false;
+        countsForGpa = false;
+      } else if (["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "合格", "免修", "免考"].includes(cj)) {
+        earnsCredit = true;
+        countsForGpa = false;
+      } else {
+        let numericVal = parseFloat(cj);
+        if (!isNaN(numericVal) && numericVal < 60) {
+          earnsCredit = false;
+          countsForGpa = true;
+        } else {
+          earnsCredit = true;
+          countsForGpa = true;
+        }
+      }
+
+      if (credit > 0) {
+        if (earnsCredit) {
+          totalEarnedCredits += credit;
+          if (majorCourseIds.value.has(g.xkkh)) majorEarnedCredits += credit;
+        }
+        if (countsForGpa) {
+          gpaCredits += credit;
+          weightedFive += credit * fiveP;
+          weightedFour += credit * fourP;
+          weightedLegacy += credit * legacyP;
+          weightedHundred += credit * hundredP;
+          if (majorCourseIds.value.has(g.xkkh)) {
+            majorGpaCredits += credit;
+            majorWeightedFour += credit * fourP;
+            majorWeightedLegacy += credit * legacyP;
+          }
+        }
+      }
+    });
+  });
+
+  return {
+    fivePoint: gpaCredits > 0 ? weightedFive / gpaCredits : 0,
+    fourPoint: gpaCredits > 0 ? weightedFour / gpaCredits : 0,
+    fourPointLegacy: gpaCredits > 0 ? weightedLegacy / gpaCredits : 0,
+    hundredPoint: gpaCredits > 0 ? weightedHundred / gpaCredits : 0,
+    totalCredits: totalEarnedCredits,
+    majorGpa: majorGpaCredits > 0 ? majorWeightedFour / majorGpaCredits : 0,
+    majorGpaLegacy: majorGpaCredits > 0 ? majorWeightedLegacy / majorGpaCredits : 0,
+    majorCredits: majorEarnedCredits
+  };
+});
+
 const gradeItems = [
-  { label: "五分制", value: () => gpa.value.fivePoint.toFixed(2), color: "#06b6d4" },
-  { label: "获得学分", value: () => gpa.value.totalCredits.toFixed(1), color: "#f97316" },
-  { label: "四分制(4.3)", value: () => gpa.value.fourPoint.toFixed(2), color: "#22c55e" },
-  { label: "主修四分制(4.3)", value: () => gpa.value.majorGpa.toFixed(2), color: "#ec4899" },
-  { label: "主修学分", value: () => gpa.value.majorCredits.toFixed(1), color: "#eab308" },
-  { label: "百分制", value: () => gpa.value.hundredPoint.toFixed(2), color: "#a855f7" },
-  { label: "四分制(4.0)", value: () => gpa.value.fourPointLegacy.toFixed(2), color: "#10b981" },
-  { label: "主修四分制(4.0)", value: () => gpa.value.majorGpaLegacy.toFixed(2), color: "#f43f5e" },
+  { label: "五分制", value: () => overallGpa.value.fivePoint.toFixed(2), color: "#06b6d4" },
+  { label: "获得学分", value: () => overallGpa.value.totalCredits.toFixed(1), color: "#f97316" },
+  { label: "四分制(4.3)", value: () => overallGpa.value.fourPoint.toFixed(2), color: "#22c55e" },
+  { label: "主修四分制(4.3)", value: () => overallGpa.value.majorGpa.toFixed(2), color: "#ec4899" },
+  { label: "主修学分", value: () => overallGpa.value.majorCredits.toFixed(1), color: "#eab308" },
+  { label: "百分制", value: () => overallGpa.value.hundredPoint.toFixed(2), color: "#a855f7" },
+  { label: "四分制(4.0)", value: () => overallGpa.value.fourPointLegacy.toFixed(2), color: "#10b981" },
+  { label: "主修四分制(4.0)", value: () => overallGpa.value.majorGpaLegacy.toFixed(2), color: "#f43f5e" },
 ];
 
 const customGpaMode = ref(false);
