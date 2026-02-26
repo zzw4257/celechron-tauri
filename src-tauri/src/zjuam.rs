@@ -125,7 +125,9 @@ mod tests {
     #[tokio::test]
     async fn test_login_zju() {
         let state = AppState::new();
-        let result = login_zju(&state, "***REMOVED***", "***REMOVED***").await;
+        let username = std::env::var("ZJU_USERNAME").expect("ZJU_USERNAME env var not set");
+        let password = std::env::var("ZJU_PASSWORD").expect("ZJU_PASSWORD env var not set");
+        let result = login_zju(&state, &username, &password).await;
         println!("Login result: {:?}", result);
         assert!(result.is_ok(), "Login failed: {:?}", result.err());
         let cookie = state.iplanet_cookie.lock().await;

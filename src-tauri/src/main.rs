@@ -431,8 +431,8 @@ mod tests {
     #[tokio::test]
     async fn test_full_api_flow() {
         let state = Arc::new(AppState::new());
-        let username = "***REMOVED***".to_string();
-        let password = "***REMOVED***".to_string();
+        let username = std::env::var("ZJU_USERNAME").expect("ZJU_USERNAME env var not set");
+        let password = std::env::var("ZJU_PASSWORD").expect("ZJU_PASSWORD env var not set");
 
         println!("--- 1. Login to ZJU AM ---");
         let iplanet = zjuam::login_zju(&state, &username, &password).await;

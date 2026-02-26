@@ -4,8 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 const emit = defineEmits(['login-success']);
 
-const username = ref("***REMOVED***");
-const password = ref("***REMOVED***");
+const username = ref("");
+const password = ref("");
 const status = ref("");
 const isLoading = ref(false);
 
