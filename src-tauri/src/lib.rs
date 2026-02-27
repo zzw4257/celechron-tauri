@@ -52,18 +52,41 @@ async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Va
         .collect();
 
     // Group transcript by semester (xnm = academic year, xqm = term)
-    // Build ordered list of semesters
+    // And enrich each grade with computed GPA fields the frontend template expects
     let mut semester_map: std::collections::BTreeMap<String, Vec<Value>> = std::collections::BTreeMap::new();
     for grade in &transcript {
         let xnm = grade.get("xnm").and_then(|v| v.as_str()).unwrap_or("未知");
         let xqm = grade.get("xqm").and_then(|v| v.as_str()).unwrap_or("?");
-        // Convert xqm code: "3" = 秋冬, "12" = 春夏  
         let term_name = match xqm {
-            "3" => format!("{}-{} 秋冬", xnm, (xnm.parse::<u32>().unwrap_or(0) + 1)),
-            "12" => format!("{}-{} 春夏", xnm, (xnm.parse::<u32>().unwrap_or(0) + 1)),
-            _ => format!("{} ({})", xnm, xqm),
+            "3"  => format!("{}-{} 秋冬", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
+            "12" => format!("{}-{} 春夏", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
+            _    => format!("{} ({})", xnm, xqm),
         };
-        semester_map.entry(term_name).or_default().push(grade.clone());
+
+        // Extract credit (xf field from API)
+        let credit = grade.get("xf").and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<f64>().ok())
+            .or_else(|| grade.get("xf").and_then(|v| v.as_f64()))
+            .unwrap_or(0.0);
+
+        // Parse grade string into numeric score
+        let cj_raw = grade.get("cj").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let hundred = parse_score(cj_raw);
+        let five = to5(hundred);
+        let four = to4(hundred);
+        let legacy = to4_legacy(five);
+
+        // Build enriched grade object
+        let mut enriched = grade.clone();
+        if let Some(obj) = enriched.as_object_mut() {
+            obj.insert("credit".to_string(), serde_json::json!(credit));
+            obj.insert("hundredPoint".to_string(), serde_json::json!(hundred));
+            obj.insert("fivePoint".to_string(), serde_json::json!(five));
+            obj.insert("fourPoint".to_string(), serde_json::json!(four));
+            obj.insert("fourPointLegacy".to_string(), serde_json::json!(legacy));
+        }
+
+        semester_map.entry(term_name).or_default().push(enriched);
     }
 
     // Convert to array ordered by semester (oldest first)
@@ -71,7 +94,7 @@ async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Va
         serde_json::json!({
             "name": name,
             "grades": grades,
-            "gpaArr": []  // frontend will compute this via fallback
+            "gpaArr": []  // frontend computes via fallback
         })
     }).collect();
 
@@ -150,6 +173,11 @@ fn to5(s: f64) -> f64 {
 
 fn to4(s: f64) -> f64 {
     if s >= 85.0 { (s - 60.0) * 0.1 } else if s >= 60.0 { (s - 60.0) * 0.06 + 1.5 } else { 0.0 }
+}
+
+fn to4_legacy(five: f64) -> f64 {
+    if five >= 4.0 { 4.0 } else if five >= 3.0 { 3.0 } else if five >= 2.0 { 2.0 }
+    else if five >= 1.5 { 1.5 } else { 0.0 }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

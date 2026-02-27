@@ -749,23 +749,26 @@ onMounted(() => {
 }
 .cal-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 2rem;
+  gap: 8px;
+  margin-bottom: 1.2rem;
 }
 .cal-title-section {
   display: flex;
   align-items: baseline;
-  gap: 15px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 .cal-title-section h1 {
   margin: 0;
-  font-size: 2rem;
+  font-size: 1.6rem;
   font-weight: 700;
   color: #e2e8f0;
 }
 .month-label {
-  font-size: 1.1rem;
+  font-size: 1rem;
   color: #38bdf8;
   font-weight: 600;
 }
@@ -776,6 +779,9 @@ onMounted(() => {
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 12px;
   padding: 4px;
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 .week-btn {
   background: transparent;
@@ -783,8 +789,8 @@ onMounted(() => {
   color: #94a3b8;
   font-size: 1.5rem;
   cursor: pointer;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -793,10 +799,14 @@ onMounted(() => {
 }
 .week-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
 .week-label {
-  padding: 0 15px;
-  font-size: 1rem;
+  padding: 0 8px;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
 
 /* Modal */
