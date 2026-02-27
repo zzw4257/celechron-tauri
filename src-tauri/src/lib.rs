@@ -46,6 +46,35 @@ async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Va
     let (five_point, four_point, hundred_point, total_credits) = calculate_gpa(&transcript);
     let (major_gpa, major_credits) = calculate_major_gpa(&major_grades);
 
+    // Build majorCourseIds set - collect xkkh from major_grades
+    let major_course_ids: Vec<String> = major_grades.iter()
+        .filter_map(|g| g.get("xkkh").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .collect();
+
+    // Group transcript by semester (xnm = academic year, xqm = term)
+    // Build ordered list of semesters
+    let mut semester_map: std::collections::BTreeMap<String, Vec<Value>> = std::collections::BTreeMap::new();
+    for grade in &transcript {
+        let xnm = grade.get("xnm").and_then(|v| v.as_str()).unwrap_or("未知");
+        let xqm = grade.get("xqm").and_then(|v| v.as_str()).unwrap_or("?");
+        // Convert xqm code: "3" = 秋冬, "12" = 春夏  
+        let term_name = match xqm {
+            "3" => format!("{}-{} 秋冬", xnm, (xnm.parse::<u32>().unwrap_or(0) + 1)),
+            "12" => format!("{}-{} 春夏", xnm, (xnm.parse::<u32>().unwrap_or(0) + 1)),
+            _ => format!("{} ({})", xnm, xqm),
+        };
+        semester_map.entry(term_name).or_default().push(grade.clone());
+    }
+
+    // Convert to array ordered by semester (oldest first)
+    let semesters: Vec<Value> = semester_map.into_iter().map(|(name, grades)| {
+        serde_json::json!({
+            "name": name,
+            "grades": grades,
+            "gpaArr": []  // frontend will compute this via fallback
+        })
+    }).collect();
+
     Ok(serde_json::json!({
         "gpa": {
             "fivePoint": five_point,
@@ -57,6 +86,8 @@ async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Va
         },
         "transcript": transcript,
         "majorGrades": major_grades,
+        "majorCourseIds": major_course_ids,
+        "semesters": semesters,
         "exams": exams,
         "practice": { "pt2": practice.pt2, "pt3": practice.pt3, "pt4": practice.pt4 },
     }))
