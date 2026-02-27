@@ -318,22 +318,25 @@ function handleLogout() {
 
 .btn-group {
   display: flex;
+  flex-wrap: wrap;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 12px;
   padding: 4px;
   gap: 4px;
-  flex-shrink: 0;
 }
 .btn-segment {
+  flex: 1;
+  min-width: fit-content;
   background: transparent;
   border: none;
   color: #94a3b8;
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 .btn-segment:hover {
   color: #f8fafc;

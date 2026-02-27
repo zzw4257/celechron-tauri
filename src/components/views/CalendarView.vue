@@ -353,7 +353,7 @@ async function fetchTimetable() {
     }
 
     const response: any = await invoke("fetch_timetable", { year: zjuYearStr, semester: zjuSemStr });
-    const data: any[] = response.timetable || [];
+    const data: any[] = Array.isArray(response) ? response : (response.timetable || response.kbList || []);
 
     if (response._meta && response._meta.source === "cache") {
       isOffline.value = true;
