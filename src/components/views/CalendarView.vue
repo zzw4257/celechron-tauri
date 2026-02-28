@@ -20,6 +20,8 @@ const periods = [
   { label: "第10节", time: "16:55-17:40" },
   { label: "第11节", time: "18:50-19:35" },
   { label: "第12节", time: "19:40-20:25" },
+  { label: "第13节", time: "20:30-21:15" },
+  { label: "第14节", time: "21:20-22:05" },
 ];
 
 interface CourseSlot {
@@ -527,7 +529,7 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
       }
 
       const periodIdx = startPeriod - 1;
-      if (periodIdx >= 0 && periodIdx < 12) {
+      if (periodIdx >= 0 && periodIdx < 14) {
         allCourses.value.push({
           name,
           location: loc,
@@ -733,7 +735,7 @@ onMounted(() => {
     </section>
 
     <!-- Weekly Grid -->
-    <section class="schedule-grid-container">
+    <section class="schedule-grid-container" v-show="!showMonthNav">
       <div class="schedule-grid">
         <!-- Row 1: Corner + Day Headers (auto-placed) -->
         <div class="grid-corner" :style="{ gridRow: 1, gridColumn: 1 }"></div>
@@ -774,7 +776,7 @@ onMounted(() => {
     </section>
 
     <!-- Hide Course Info Toggle -->
-    <div class="hide-course-settings glass-panel">
+    <div class="hide-course-settings glass-panel" v-show="!showMonthNav">
       <span>隐藏课程信息</span>
       <div class="toggle-switch" :class="{ active: hideCourseInfo }" @click="toggleHideCourseInfo">
         <div class="toggle-knob"></div>
@@ -1097,7 +1099,7 @@ onMounted(() => {
 .schedule-grid {
   display: grid;
   grid-template-columns: 70px repeat(7, minmax(90px, 1fr));
-  grid-template-rows: auto repeat(12, minmax(42px, auto));
+  grid-template-rows: auto repeat(14, minmax(42px, auto));
   min-width: 800px;
 }
 
@@ -1591,6 +1593,7 @@ onMounted(() => {
     line-height: 1.15;
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }

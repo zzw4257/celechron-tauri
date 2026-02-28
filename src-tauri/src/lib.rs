@@ -4,6 +4,8 @@ mod zjuam;
 
 use serde_json::Value;
 use std::sync::Arc;
+#[cfg(desktop)]
+use tauri::Manager;
 use zjuam::AppState;
 
 #[tauri::command]

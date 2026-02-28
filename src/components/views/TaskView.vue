@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import PomodoroWidget from "../PomodoroWidget.vue";
 
 const isLoading = ref(true);
 const isOffline = ref(false);
@@ -95,6 +96,10 @@ onMounted(() => {
     <header class="task-header">
       <h1>任务</h1>
     </header>
+
+    <div style="margin-bottom: 1.5rem;">
+      <PomodoroWidget />
+    </div>
 
     <!-- Offline Warning Banner -->
     <div v-if="isOffline" class="offline-banner">
