@@ -20,7 +20,7 @@ export function useBiometric() {
      * Returns true on success, false on failure or if not available (silent skip).
      * @param displayName Account display name shown in the system prompt
      */
-    async function authenticate(displayName: string): Promise<boolean> {
+    async function authenticate(_displayName: string): Promise<boolean> {
         try {
             const available = await isBiometricAvailable();
             // If the device doesn't support biometrics, silently skip (return true = allow switch)
