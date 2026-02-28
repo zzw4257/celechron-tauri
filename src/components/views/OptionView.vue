@@ -62,7 +62,9 @@ async function switchAccount(acc: SavedAccount) {
   if (isSwitching.value) return;
   
   const displayName = accountDisplayName(acc);
-  switchStatus.value = `等待验证...`;
+  switchStatus.value = `等待验证指纹/面容...`;
+  
+  await new Promise(r => setTimeout(r, 50));
   
   const authStatus = await authenticate(displayName);
   
@@ -655,14 +657,14 @@ function deleteAccount(id: string) {
   justify-content: space-between;
   align-items: center;
   padding: 12px 14px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: #0f172a;
+  border: 1px solid #334155;
   border-radius: 14px;
   transition: background 0.2s;
 }
-:global(.dark-theme) .account-row {
-  background: #0f172a;
-  border-color: #334155;
+:global(.light-theme) .account-row {
+  background: #f8fafc;
+  border-color: #e2e8f0;
 }
 .acc-info {
   display: flex;
@@ -692,17 +694,17 @@ function deleteAccount(id: string) {
 .acc-title {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #1e293b;
+  color: #f1f5f9;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-:global(.dark-theme) .acc-title { color: #f1f5f9; }
+:global(.light-theme) .acc-title { color: #1e293b; }
 .acc-sub {
   font-size: 0.8rem;
-  color: #64748b;
+  color: #94a3b8;
 }
-:global(.dark-theme) .acc-sub { color: #94a3b8; }
+:global(.light-theme) .acc-sub { color: #64748b; }
 .acc-actions {
   display: flex;
   gap: 6px;
@@ -721,50 +723,49 @@ function deleteAccount(id: string) {
 .btn-switch { color: #0ea5e9; }
 .btn-switch:hover { background: rgba(14,165,233,0.1); }
 .btn-switch:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-edit { color: #64748b; }
+.btn-edit { color: #94a3b8; }
 .btn-edit:hover { background: rgba(100,116,139,0.1); }
-:global(.dark-theme) .btn-edit { color: #94a3b8; }
-.btn-delete { color: #dc2626; }
+:global(.light-theme) .btn-edit { color: #64748b; }
+.btn-delete { color: #f87171; }
 .btn-delete:hover { background: rgba(220,38,38,0.1); }
-:global(.dark-theme) .btn-delete { color: #f87171; }
+:global(.light-theme) .btn-delete { color: #dc2626; }
 .no-accounts {
   text-align: center;
   padding: 24px;
-  color: #64748b;
   font-size: 0.9rem;
   line-height: 1.5;
-  background: #f8fafc;
   border-radius: 12px;
-  border: 1px dashed #cbd5e1;
-}
-:global(.dark-theme) .no-accounts {
   background: #0f172a;
-  border-color: #334155;
+  border: 1px dashed #334155;
   color: #94a3b8;
+}
+:global(.light-theme) .no-accounts {
+  color: #64748b;
+  background: #f8fafc;
+  border-color: #cbd5e1;
 }
 .switch-status {
   margin-top: 12px;
   padding: 8px;
   border-radius: 8px;
-  background: #f0f9ff;
-  color: #0284c7;
   font-size: 0.85rem;
   text-align: center;
   font-weight: 500;
+  background: #0c4a6e; color: #38bdf8;
 }
-:global(.dark-theme) .switch-status { background: #0c4a6e; color: #38bdf8; }
-.switch-status.error { background: #fef2f2; color: #dc2626; }
-:global(.dark-theme) .switch-status.error { background: #450a0a; color: #f87171; }
+:global(.light-theme) .switch-status { background: #f0f9ff; color: #0284c7; }
+.switch-status.error { background: #450a0a; color: #f87171; }
+:global(.light-theme) .switch-status.error { background: #fef2f2; color: #dc2626; }
 
 /* ─── Add Account ─── */
 .add-account-btn {
   margin-top: 12px;
   width: 100%;
   padding: 10px;
-  border: 2px dashed #cbd5e1;
+  border: 2px dashed #475569;
   border-radius: 12px;
   background: transparent;
-  color: #64748b;
+  color: #94a3b8;
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
@@ -775,17 +776,17 @@ function deleteAccount(id: string) {
   transition: all 0.2s;
 }
 .add-account-btn:hover {
-  border-color: #0ea5e9;
-  color: #0ea5e9;
-  background: rgba(14,165,233,0.04);
-}
-:global(.dark-theme) .add-account-btn {
-  border-color: #475569;
-  color: #94a3b8;
-}
-:global(.dark-theme) .add-account-btn:hover {
   border-color: #38bdf8;
   color: #38bdf8;
+  background: rgba(14,165,233,0.04);
+}
+:global(.light-theme) .add-account-btn {
+  border-color: #cbd5e1;
+  color: #64748b;
+}
+:global(.light-theme) .add-account-btn:hover {
+  border-color: #0ea5e9;
+  color: #0ea5e9;
 }
 .add-account-hint {
   margin-top: 8px;
@@ -798,15 +799,15 @@ function deleteAccount(id: string) {
   margin-top: 12px;
   padding: 16px;
   border-radius: 14px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid #334155;
+  background: #0f172a;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-:global(.dark-theme) .add-form {
-  background: #0f172a;
-  border-color: #334155;
+:global(.light-theme) .add-form {
+  background: #f8fafc;
+  border-color: #e2e8f0;
 }
 .add-form-header {
   display: flex;
@@ -814,31 +815,31 @@ function deleteAccount(id: string) {
   align-items: center;
   font-weight: 700;
   font-size: 0.95rem;
-  color: #1e293b;
+  color: #f1f5f9;
 }
-:global(.dark-theme) .add-form-header { color: #f1f5f9; }
+:global(.light-theme) .add-form-header { color: #1e293b; }
 
 .add-form-input {
   width: 100%;
   padding: 8px 12px;
   font-size: 0.9rem;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: white;
-  color: #1e293b;
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #f1f5f9;
   outline: none;
   transition: border-color 0.15s;
 }
 .add-form-input:focus {
-  border-color: #0ea5e9;
-}
-:global(.dark-theme) .add-form-input {
-  background: #1e293b;
-  border-color: #334155;
-  color: #f1f5f9;
-}
-:global(.dark-theme) .add-form-input:focus {
   border-color: #38bdf8;
+}
+:global(.light-theme) .add-form-input {
+  background: white;
+  border-color: #e2e8f0;
+  color: #1e293b;
+}
+:global(.light-theme) .add-form-input:focus {
+  border-color: #0ea5e9;
 }
 
 .add-form-submit {

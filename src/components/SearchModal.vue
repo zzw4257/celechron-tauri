@@ -341,9 +341,14 @@ const getColor = (type: string) => {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(0, 0, 0, 0.1);
 }
+:global(.light-theme) .search-header {
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
 :global(.light-theme) .search-input { color: #1e293b; }
 :global(.light-theme) .search-input::placeholder { color: #94a3b8; }
 :global(.light-theme) .item-title { color: #334155; }
+:global(.light-theme) .item-subtitle { color: #64748b; }
+:global(.light-theme) .no-results { color: #64748b; }
 :global(.light-theme) .result-item.selected { background: rgba(0, 0, 0, 0.05); }
 :global(.light-theme) .esc-kbd { 
   background: #f1f5f9; 

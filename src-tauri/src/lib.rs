@@ -70,9 +70,18 @@ async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Va
     let mut semester_map: std::collections::BTreeMap<String, Vec<Value>> =
         std::collections::BTreeMap::new();
     for grade in &transcript {
-        let xnm = grade.get("xnm").and_then(|v| v.as_str()).unwrap_or("未知");
-        let xqm = grade.get("xqm").and_then(|v| v.as_str()).unwrap_or("?");
-        let term_name = match xqm {
+        // xnm and xqm might be numbers instead of purely strings in the ZJU API
+        let xnm = grade
+            .get("xnm")
+            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
+            .unwrap_or_else(|| "未知".to_string());
+            
+        let xqm = grade
+            .get("xqm")
+            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
+            .unwrap_or_else(|| "?".to_string());
+            
+        let term_name = match xqm.as_str() {
             "1" => format!("{}-{} 秋", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
             "2" => format!("{}-{} 冬", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
             "3" => format!("{}-{} 秋冬", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),

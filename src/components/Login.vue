@@ -51,11 +51,30 @@ async function quickLogin(acc: SavedAccount) {
   
   // 1. Biometric Auth
   const displayName = accountDisplayName(acc);
-  status.value = `等待验证...`;
+  status.value = `等待验证指纹/面容...`;
+  
+  // Wait a tick so Vue can render the status text before the OS blocks the UI thread
+  await new Promise(r => setTimeout(r, 50));
+  
   const authOk = await authenticate(displayName);
-  if (!authOk) {
-    status.value = "系统生物验证取消或失败";
+  
+  if (authOk === 'failed') {
+    status.value = "系统生物验证已手动取消";
     return;
+  }
+
+  const realPwd = await getPassword(acc);
+  
+  if (authOk === 'fallback') {
+    const inputPwd = window.prompt(`请验证身份。\n输入账户 ${displayName} 的密码以继续登录：`);
+    if (inputPwd === null) {
+      status.value = "已取消身份验证";
+      return;
+    }
+    if (inputPwd !== realPwd) {
+      status.value = "密码错误，验证失败";
+      return;
+    }
   }
 
   // 2. Decrypt & Login

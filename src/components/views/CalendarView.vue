@@ -660,19 +660,20 @@ onMounted(() => {
   <div class="calendar-view">
     <header class="cal-header">
       <div class="cal-title-section">
-        <h1>日程</h1>
-        <span class="month-label">{{ currentMonthStr }}</span>
+        <span class="month-label-large">{{ currentMonthStr }}</span>
       </div>
-      <div class="week-selector">
-        <button class="week-btn" @click="currentWeek = currentWeek - 1">‹</button>
-        <span class="week-label" @click="calibrateWeekInput = getRealCurrentWeek(); showCalibrateModal = true" style="cursor: pointer; text-decoration: underline dashed rgba(255,255,255,0.3); text-underline-offset: 4px;" title="点击校准周数">
-          {{ semesterLabel }} · 第 {{ currentWeek }} 周 / {{ totalWeeks }}
-        </span>
-        <button class="week-btn" @click="currentWeek = currentWeek + 1">›</button>
-        <button class="toggle-icon-btn" :class="{active: showMonthNav}" @click="showMonthNav = !showMonthNav" title="月历导航" style="margin-left: 8px;">
+      <div class="cal-actions-section">
+        <div class="week-selector-pill glass-panel">
+          <button class="pill-btn" @click="currentWeek = currentWeek - 1">‹</button>
+          <span class="pill-label" @click="calibrateWeekInput = getRealCurrentWeek(); showCalibrateModal = true" title="点击校准周数">
+            {{ semesterLabel }} · 第 {{ currentWeek }} 周 / {{ totalWeeks }}
+          </span>
+          <button class="pill-btn" @click="currentWeek = currentWeek + 1">›</button>
+        </div>
+        <button class="action-icon-btn primary-icon-btn" :class="{active: showMonthNav}" @click="showMonthNav = !showMonthNav" title="月历导航">
           <CalendarDays :size="18"/>
         </button>
-        <button class="toggle-icon-btn" @click="exportToICS" title="导出日历(ics)">
+        <button class="action-icon-btn" @click="exportToICS" title="导出日历(ics)">
           <Download :size="18"/>
         </button>
       </div>
@@ -931,41 +932,67 @@ onMounted(() => {
   color: #38bdf8;
   font-weight: 600;
 }
-.week-selector {
+.cal-actions-section {
   display: flex;
   align-items: center;
-  background: rgba(255,255,255,.05);
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 12px;
-  padding: 4px;
+  gap: 12px;
+}
+.week-selector-pill {
+  display: flex;
+  align-items: center;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 999px;
+  padding: 4px 6px;
   flex-shrink: 0;
   max-width: 100%;
   overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(255,255,255,0.05);
 }
-.week-btn {
+.pill-btn {
   background: transparent;
   border: none;
   color: #94a3b8;
   font-size: 1.5rem;
   cursor: pointer;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 50%;
   transition: all .2s;
 }
-.week-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
-.week-label {
-  padding: 0 8px;
-  font-size: 0.8rem;
+.pill-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+.pill-label {
+  padding: 0 12px;
+  font-size: 0.85rem;
   font-weight: 600;
   color: #e2e8f0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 200px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.pill-label:hover {
+  opacity: 0.8;
+}
+
+:root.light-theme .week-selector-pill {
+  background: rgba(0,0,0,0.05);
+  border-color: rgba(0,0,0,0.1);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+}
+:root.light-theme .pill-btn {
+  color: #64748b;
+}
+:root.light-theme .pill-btn:hover {
+  background: rgba(0,0,0,0.08);
+  color: #0f172a;
+}
+:root.light-theme .pill-label {
+  color: #334155;
 }
 
 /* Modal */
@@ -1457,39 +1484,106 @@ onMounted(() => {
   color: #64748b;
 }
 
-/* Toggle buttons */
-:root.light-theme .toggle-icon-btn {
+/* Floating Toggle Switch for Course info */
+.hide-course-settings {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 100;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.hide-course-settings span {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+:root.light-theme .hide-course-settings span {
+  color: #334155;
+}
+.hide-course-settings:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.2);
+}
+
+.toggle-switch {
+  width: 50px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.3s;
+  flex-shrink: 0;
+}
+.toggle-switch.active {
+  background: #38bdf8;
+}
+.toggle-knob {
+  width: 24px;
+  height: 24px;
+  background: #fff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+.toggle-switch.active .toggle-knob {
+  transform: translateX(22px);
+}
+:root.light-theme .toggle-switch {
+  background: rgba(0,0,0,0.15);
+}
+
+.action-icon-btn {
+  color: #1e293b;
+}
+:root.light-theme .item-desc {
   color: #64748b;
 }
-:root.light-theme .toggle-icon-btn.active {
-  background: #0284c7;
-  color: #fff;
-}
 
-/* Calibration modal light overrides */
-:root.light-theme .btn-primary {
-  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
-}
-
-/* Offline banner light mode */
-:root.light-theme .offline-banner {
-  background: rgba(245,158,11,0.08);
-  color: #92400e;
-}
-
-.toggle-icon-btn {
+.action-icon-btn {
   background: transparent;
-  color: var(--text-muted);
+  color: #64748b;
   border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 8px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.toggle-icon-btn.active {
-  background: rgba(255,255,255,0.15);
-  color: var(--text-main);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+.action-icon-btn.primary-icon-btn {
+  background: #0ea5e9;
+  color: white;
+}
+.action-icon-btn:hover {
+  background: rgba(14, 165, 233, 0.1);
+}
+.action-icon-btn.primary-icon-btn:hover {
+  background: #0284c7;
+}
+
+:root.light-theme .action-icon-btn {
+  color: #64748b;
+}
+:root.light-theme .action-icon-btn:hover {
+  background: rgba(0,0,0,0.05);
+}
+:root.light-theme .action-icon-btn.primary-icon-btn {
+  background: #0ea5e9;
+  color: white;
+}
+:root.light-theme .action-icon-btn.primary-icon-btn:hover {
+  background: #0284c7;
 }
 
 .fade-in {
@@ -1515,30 +1609,21 @@ onMounted(() => {
   .cal-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
-    margin-bottom: 0.8rem;
+    gap: 12px;
+    margin-bottom: 1.2rem;
   }
-  .cal-title-section {
-    gap: 8px;
-  }
-  .cal-title-section h1 {
-    font-size: 1.3rem;
-  }
-  .month-label {
-    font-size: 0.85rem;
-  }
-  .week-selector {
+  .cal-actions-section {
     width: 100%;
+    justify-content: space-between;
+  }
+  .week-selector-pill {
+    flex-grow: 1;
     justify-content: center;
   }
-  .week-label {
+  .pill-label {
     font-size: 0.75rem;
-    padding: 0 6px;
-    max-width: none;
   }
-  .week-btn {
-    width: 32px;
-    height: 32px;
+  .month-label-large {
     font-size: 1.3rem;
   }
 
