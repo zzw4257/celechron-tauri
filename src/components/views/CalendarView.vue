@@ -1342,9 +1342,161 @@ onMounted(() => {
 }
 
 @media (max-width: 600px) {
-  .calendar-view { padding: 1rem 1rem 6rem; }
+  .calendar-view { padding: 1rem 0.8rem 6rem; }
   .month-grid { gap: 4px; padding: 1rem; }
   .month-cell { border-radius: 8px; }
   .month-day-num { font-size: 0.95rem; }
+}
+
+/* ═══════════════════════════════════════════════════════ */
+/*              MOBILE TIMETABLE RESPONSIVE               */
+/* ═══════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Header: stack vertically */
+  .cal-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 0.8rem;
+  }
+  .cal-title-section {
+    gap: 8px;
+  }
+  .cal-title-section h1 {
+    font-size: 1.3rem;
+  }
+  .month-label {
+    font-size: 0.85rem;
+  }
+  .week-selector {
+    width: 100%;
+    justify-content: center;
+  }
+  .week-label {
+    font-size: 0.75rem;
+    padding: 0 6px;
+    max-width: none;
+  }
+  .week-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 1.3rem;
+  }
+
+  /* Grid: remove min-width, show 5 days only */
+  .schedule-grid {
+    grid-template-columns: 28px repeat(7, 1fr) !important;
+    min-width: 0 !important;
+  }
+  .schedule-grid-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 14px;
+  }
+
+  /* Compact period labels */
+  .grid-period-label {
+    padding: 2px;
+  }
+  .period-num {
+    font-size: 0.6rem !important;
+  }
+  .period-time {
+    display: none;
+  }
+
+  /* Day headers compact */
+  .grid-day-header {
+    padding: 4px 2px;
+    font-size: 0.75rem;
+  }
+  .day-num {
+    font-size: 0.6rem !important;
+  }
+  .day-name {
+    font-size: 0.7rem !important;
+  }
+
+  /* Grid cells compact */
+  .grid-cell {
+    min-height: 32px !important;
+  }
+
+  /* Course blocks: touch-optimized */
+  .course-block {
+    padding: 2px 3px;
+    border-radius: 4px;
+    margin: 0 1px;
+  }
+  .course-name {
+    font-size: 0.58rem !important;
+    line-height: 1.15;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .course-loc {
+    display: none !important;
+  }
+
+  /* Touch feedback for course blocks */
+  .course-block:active {
+    transform: scale(0.93) !important;
+    opacity: 0.85;
+    transition: transform 0.08s, opacity 0.08s;
+  }
+
+  /* Today summary compact */
+  .today-summary {
+    padding: 0.8rem 1rem;
+    border-radius: 14px;
+  }
+  .today-item {
+    min-width: 130px;
+    padding: 0.6rem 0.8rem;
+  }
+
+  /* Modal → Bottom Sheet */
+  .modal-overlay {
+    align-items: flex-end !important;
+  }
+  .modal-content.glass-panel {
+    max-width: 100% !important;
+    width: 100% !important;
+    border-radius: 20px 20px 0 0 !important;
+    margin: 0 !important;
+    max-height: 70vh;
+    overflow-y: auto;
+    animation: slideUpSheet 0.3s ease-out;
+  }
+
+  /* View toggle buttons */
+  .view-toggle {
+    margin-right: 6px !important;
+  }
+  .toggle-icon-btn {
+    padding: 4px 8px;
+  }
+
+  /* Month grid compact */
+  .month-grid-container {
+    grid-template-columns: 1fr !important;
+  }
+  .selected-day-panel {
+    padding: 1rem;
+  }
+}
+
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Touch feedback for all interactive course blocks (all viewports) */
+.course-block:active {
+  transform: scale(0.96);
+  opacity: 0.9;
+  transition: transform 0.08s, opacity 0.08s;
 }
 </style>

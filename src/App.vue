@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, provide } from "vue";
 import Login from "./components/Login.vue";
 import MainLayout from "./components/MainLayout.vue";
 import { useTheme } from "./composables/useTheme";
@@ -7,6 +7,7 @@ import { useTheme } from "./composables/useTheme";
 const { applyTheme, currentTheme } = useTheme();
 
 const isLoggedIn = ref(false);
+const layoutKey = ref(0); // Force remount MainLayout on account switch
 
 onMounted(() => {
   applyTheme(currentTheme.value);
@@ -19,6 +20,20 @@ function handleLoginSuccess() {
   localStorage.setItem("lastLogin", "true");
   isLoggedIn.value = true;
 }
+
+function handleLogout() {
+  localStorage.removeItem("lastLogin");
+  isLoggedIn.value = false;
+}
+
+function handleAccountSwitch() {
+  // Force all child views to re-mount and refetch data
+  layoutKey.value++;
+}
+
+// Provide to all descendants so OptionView can call these
+provide('appLogout', handleLogout);
+provide('appAccountSwitch', handleAccountSwitch);
 </script>
 
 <template>
@@ -36,7 +51,7 @@ function handleLoginSuccess() {
     </div>
     <div class="app-ui-layer">
       <Login v-if="!isLoggedIn" @login-success="handleLoginSuccess" />
-      <MainLayout v-else />
+      <MainLayout v-else :key="layoutKey" />
     </div>
   </main>
 </template>

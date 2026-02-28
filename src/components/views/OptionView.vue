@@ -1,18 +1,30 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, inject } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { LogOut, RefreshCw, Palette, SunMoon, Layers } from "lucide-vue-next";
+import { LogOut, RefreshCw, Palette, SunMoon, Layers, UserPlus } from "lucide-vue-next";
 import { useTheme, type ThemeType } from "../../composables/useTheme";
 import { useAccounts, type SavedAccount } from "../../composables/useAccounts";
 import { useBiometric } from "../../composables/useBiometric";
 
 const { currentTheme, THEMES, setTheme, isLightMode, toggleLightMode, glassEffect, setGlassEffect } = useTheme();
-const { accounts, removeAccount, updateNickname, getPassword, accountDisplayName } = useAccounts();
+const { accounts, addAccount, removeAccount, updateNickname, getPassword, accountDisplayName, isFull } = useAccounts();
 const { authenticate } = useBiometric();
+
+// Injected from App.vue for clean logout/switch
+const appLogout = inject<() => void>('appLogout', () => { window.location.reload(); });
+const appAccountSwitch = inject<() => void>('appAccountSwitch', () => {});
 
 const isRefreshing = ref(false);
 const isSwitching = ref(false);
 const switchStatus = ref("");
+
+// Add Account inline form
+const showAddForm = ref(false);
+const addFormUsername = ref("");
+const addFormPassword = ref("");
+const addFormNickname = ref("");
+const addFormStatus = ref("");
+const addFormLoading = ref(false);
 
 async function handleRefresh() {
   if (isRefreshing.value) return;
@@ -29,8 +41,7 @@ async function handleRefresh() {
 }
 
 function handleLogout() {
-  localStorage.removeItem("lastLogin");
-  window.location.reload();
+  appLogout();
 }
 
 async function switchAccount(acc: SavedAccount) {
@@ -52,12 +63,34 @@ async function switchAccount(acc: SavedAccount) {
   try {
     const plainPwd = await getPassword(acc);
     await invoke("login_zju_command", { username: acc.username, password: plainPwd });
-    switchStatus.value = "切换成功，正在重新加载...";
-    // Reload to refresh all data globally with the new cookies
-    setTimeout(() => { window.location.reload(); }, 500);
+    switchStatus.value = "切换成功，刷新数据中...";
+    isSwitching.value = false;
+    // Trigger App.vue to remount MainLayout (refetch all data)
+    appAccountSwitch();
   } catch (err: any) {
     switchStatus.value = typeof err === "string" ? err : (err.message || "切换失败");
     isSwitching.value = false;
+  }
+}
+
+async function handleAddAccount() {
+  if (!addFormUsername.value || !addFormPassword.value || addFormLoading.value) return;
+  addFormLoading.value = true;
+  addFormStatus.value = "正在验证...";
+  try {
+    await invoke("login_zju_command", { username: addFormUsername.value, password: addFormPassword.value });
+    await addAccount(addFormUsername.value, addFormPassword.value, addFormNickname.value);
+    addFormStatus.value = "添加成功！";
+    addFormUsername.value = "";
+    addFormPassword.value = "";
+    addFormNickname.value = "";
+    setTimeout(() => { showAddForm.value = false; addFormStatus.value = ""; }, 800);
+    // Switch to the newly added account
+    appAccountSwitch();
+  } catch (err: any) {
+    addFormStatus.value = typeof err === "string" ? err : (err.message || "登录验证失败");
+  } finally {
+    addFormLoading.value = false;
   }
 }
 
@@ -201,8 +234,28 @@ function deleteAccount(id: string) {
             </div>
             
             <div v-if="accounts.length === 0" class="no-accounts">
-              没有保存的快速账户。<br/>下次登录成功后系统会提示保存。
+              没有保存的快速账户。点击下方添加。
             </div>
+          </div>
+
+          <!-- Add Account Button + Inline Form -->
+          <button v-if="!showAddForm && !isFull" class="add-account-btn" @click="showAddForm = true">
+            <UserPlus :size="16" /> 添加新账户
+          </button>
+          <div v-if="isFull && !showAddForm" class="add-account-hint">已达上限 (5个)，请先删除再添加</div>
+
+          <div v-if="showAddForm" class="add-form">
+            <div class="add-form-header">
+              <span>添加新账户</span>
+              <button class="btn-text" @click="showAddForm = false; addFormStatus = ''">取消</button>
+            </div>
+            <input v-model="addFormUsername" type="text" class="add-form-input" placeholder="ZJU 学号" />
+            <input v-model="addFormPassword" type="password" class="add-form-input" placeholder="密码" />
+            <input v-model="addFormNickname" type="text" class="add-form-input" placeholder="备注名 (选填)" maxlength="10" />
+            <button class="add-form-submit" @click="handleAddAccount" :disabled="addFormLoading || !addFormUsername || !addFormPassword">
+              {{ addFormLoading ? '验证中...' : '验证并添加' }}
+            </button>
+            <div v-if="addFormStatus" class="switch-status" :class="{ error: addFormStatus.includes('失败') }">{{ addFormStatus }}</div>
           </div>
 
           <!-- Status Indicator for Switching -->
@@ -631,4 +684,105 @@ function deleteAccount(id: string) {
 :global(.dark-theme) .switch-status { background: #0c4a6e; color: #38bdf8; }
 .switch-status.error { background: #fef2f2; color: #dc2626; }
 :global(.dark-theme) .switch-status.error { background: #450a0a; color: #f87171; }
+
+/* ─── Add Account ─── */
+.add-account-btn {
+  margin-top: 12px;
+  width: 100%;
+  padding: 10px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+.add-account-btn:hover {
+  border-color: #0ea5e9;
+  color: #0ea5e9;
+  background: rgba(14,165,233,0.04);
+}
+:global(.dark-theme) .add-account-btn {
+  border-color: #475569;
+  color: #94a3b8;
+}
+:global(.dark-theme) .add-account-btn:hover {
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+.add-account-hint {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.add-form {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+:global(.dark-theme) .add-form {
+  background: #0f172a;
+  border-color: #334155;
+}
+.add-form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #1e293b;
+}
+:global(.dark-theme) .add-form-header { color: #f1f5f9; }
+
+.add-form-input {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #1e293b;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.add-form-input:focus {
+  border-color: #0ea5e9;
+}
+:global(.dark-theme) .add-form-input {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+:global(.dark-theme) .add-form-input:focus {
+  border-color: #38bdf8;
+}
+
+.add-form-submit {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: #0ea5e9;
+  color: white;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.add-form-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 </style>
