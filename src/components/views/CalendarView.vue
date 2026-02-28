@@ -8,20 +8,19 @@ import { CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRan
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 // ZJU 标准 12 节课时间表 (每节独立)
 const periods = [
-  { label: "第1节", time: "08:00-08:50" },
-  { label: "第2节", time: "08:55-09:35" },
-  { label: "第3节", time: "09:50-10:35" },
-  { label: "第4节", time: "10:40-11:25" },
-  { label: "第5节", time: "11:30-12:15" },
-  { label: "第6节", time: "13:15-14:00" },
-  { label: "第7节", time: "14:05-14:50" },
-  { label: "第8节", time: "15:05-15:50" },
-  { label: "第9节", time: "15:55-16:40" },
-  { label: "第10节", time: "16:55-17:40" },
-  { label: "第11节", time: "18:50-19:35" },
-  { label: "第12节", time: "19:40-20:25" },
-  { label: "第13节", time: "20:30-21:15" },
-  { label: "第14节", time: "21:20-22:05" },
+  { label: "1", time: "08:00" },
+  { label: "2", time: "08:50" },
+  { label: "3", time: "10:00" },
+  { label: "4", time: "10:50" },
+  { label: "5", time: "11:40" },
+  { label: "6", time: "13:25" },
+  { label: "7", time: "14:15" },
+  { label: "8", time: "15:05" },
+  { label: "9", time: "16:15" },
+  { label: "10", time: "17:05" },
+  { label: "11", time: "18:50" },
+  { label: "12", time: "19:40" },
+  { label: "13", time: "20:30" },
 ];
 
 interface CourseSlot {
@@ -529,7 +528,7 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
       }
 
       const periodIdx = startPeriod - 1;
-      if (periodIdx >= 0 && periodIdx < 14) {
+      if (periodIdx >= 0 && periodIdx < 13) {
         allCourses.value.push({
           name,
           location: loc,
@@ -744,7 +743,7 @@ onMounted(() => {
           <div class="day-name">{{ day.split(' ')[1] }}</div>
         </div>
 
-        <!-- Rows 2-13: Period labels + empty cells (explicitly placed) -->
+        <!-- Rows 2-14: Period labels + empty cells (explicitly placed) -->
         <template v-for="(period, pi) in periods" :key="'p'+pi">
           <div class="grid-period-label" :style="{ gridRow: pi + 2, gridColumn: 1 }">
             <span class="period-num">{{ period.label }}</span>
@@ -806,7 +805,7 @@ onMounted(() => {
           <div class="detail-row">
             <span class="detail-label"><Clock :size="14" style="vertical-align: -2px; margin-right: 4px;" /> 节 次</span>
             <span class="detail-value">第 {{ selectedCourse.periodIdx + 1 }}-{{ selectedCourse.periodIdx + selectedCourse.span }} 节
-              ({{ periods[selectedCourse.periodIdx]?.time.split('-')[0] }}-{{ periods[selectedCourse.periodIdx + selectedCourse.span - 1]?.time.split('-')[1] }})
+              ({{ periods[selectedCourse.periodIdx]?.time }}-{{ periods[selectedCourse.periodIdx + selectedCourse.span - 1]?.time }})
             </span>
           </div>
           <div class="detail-row">
@@ -1098,9 +1097,9 @@ onMounted(() => {
 }
 .schedule-grid {
   display: grid;
-  grid-template-columns: 70px repeat(7, minmax(90px, 1fr));
-  grid-template-rows: auto repeat(14, minmax(42px, auto));
-  min-width: 800px;
+  grid-template-columns: 50px repeat(7, minmax(60px, 1fr));
+  grid-template-rows: auto repeat(13, minmax(42px, auto));
+  min-width: 600px;
 }
 
 .grid-corner {
@@ -1592,8 +1591,8 @@ onMounted(() => {
     font-size: 0.58rem !important;
     line-height: 1.15;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
