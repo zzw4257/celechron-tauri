@@ -543,11 +543,10 @@ fn to_four_point_legacy(five_point: f64) -> f64 {
 fn main() {
     let app_state = Arc::new(AppState::new());
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_biometric::init())
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
@@ -555,7 +554,14 @@ fn main() {
             fetch_scholar_data,
             fetch_timetable,
             fetch_todos,
-        ])
+        ]);
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        builder = builder.plugin(tauri_plugin_biometric::init());
+    }
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

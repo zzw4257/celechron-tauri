@@ -4,7 +4,6 @@ mod zjuam;
 
 use serde_json::Value;
 use std::sync::Arc;
-use tauri::Manager;
 use zjuam::AppState;
 
 #[tauri::command]
@@ -297,7 +296,15 @@ pub fn run() {
         ));
     }
 
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        builder = builder.plugin(tauri_plugin_biometric::init());
+    }
+
     builder
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
