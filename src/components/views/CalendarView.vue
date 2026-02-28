@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRange, Hash } from "lucide-vue-next";
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRange, Download } from "lucide-vue-next";
 
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 // ZJU 标准 12 节课时间表 (每节独立)
@@ -40,11 +42,74 @@ const allExams = ref<any[]>([]);
 
 const showMonthNav = ref(false);
 const selectedDate = ref(new Date());
+const hideCourseInfo = ref(localStorage.getItem('hideCourseInfo') === 'true');
 
-const totalWeeks = ref(18); // Typical ZJU semester is 16-18 weeks
+function toggleHideCourseInfo() {
+  hideCourseInfo.value = !hideCourseInfo.value;
+  localStorage.setItem('hideCourseInfo', hideCourseInfo.value.toString());
+}
+
+// Semester tabs
+interface SemesterTab {
+  label: string;
+  year: string;  // xnm e.g. "2025"
+  sem: string;   // xqm e.g. "12" or "3"
+  isCurrent: boolean;
+}
+
+function buildSemesterTabs(): SemesterTab[] {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  let curYear: number, curSem: string;
+  if (month >= 2 && month <= 8) {
+    curYear = year - 1;
+    curSem = '12';
+  } else {
+    curYear = month === 1 ? year - 1 : year;
+    curSem = '3';
+  }
+  const tabs: SemesterTab[] = [];
+  // Generate 4 semesters: current + 3 previous
+  let y = curYear, s = curSem;
+  for (let i = 0; i < 4; i++) {
+    const label = `${String(y).slice(-2)}-${String(Number(y) + 1).slice(-2)}${s === '12' ? '春夏' : '秋冬'}`;
+    tabs.push({ label, year: y.toString(), sem: s, isCurrent: i === 0 });
+    // Go to previous semester
+    if (s === '12') { s = '3'; y -= 1; }
+    else { s = '12'; }
+  }
+  return tabs;
+}
+
+const semesterTabs = ref(buildSemesterTabs());
+const activeSemIdx = ref(0);
+
+function switchSemester(idx: number) {
+  activeSemIdx.value = idx;
+  const tab = semesterTabs.value[idx];
+  fetchTimetable(tab.year, tab.sem);
+}
+
+const totalWeeks = ref(18);
 const isLoading = ref(true);
 const isOffline = ref(false);
 const offlineTime = ref("");
+
+// 课时统计 (class hours per 2 weeks)
+const classHoursStats = computed(() => {
+  const courses = allCourses.value;
+  if (courses.length === 0) return { total: 0, perTwoWeeks: '0' };
+  // Total periods across all active weeks
+  let totalPeriods = 0;
+  courses.forEach(c => {
+    totalPeriods += c.span * c.activeWeeks.length;
+  });
+  // Max week to determine semester length
+  const maxWeek = Math.max(...courses.flatMap(c => c.activeWeeks), 1);
+  const perTwoWeeks = maxWeek > 0 ? (totalPeriods / maxWeek * 2).toFixed(1) : '0';
+  return { total: totalPeriods, perTwoWeeks };
+});
 
 // Course detail modal
 const selectedCourse = ref<CourseSlot | null>(null);
@@ -323,32 +388,24 @@ async function fetchExtraData() {
     } catch(e) {}
 }
 
-async function fetchTimetable() {
+async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
+  isLoading.value = true;
+
   try {
-    isLoading.value = true;
-    
-    // Dynamic semester calculation for ZJU
-    // Academic Year runs Fall -> Spring. E.g., Fall 2025 -> Spring 2026 is Year "2025".
-    // Fall (Sem 1) typically starts ~September. Spring (Sem 2) typically starts ~February.
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
-    let zjuYearStr = "";
-    let zjuSemStr = "";
-    
-    // ZJU 教务系统 API 编码: xqm=12 表示春夏学期, xqm=3 表示秋冬学期
-    // Feb (2) to Aug (8) -> 春夏学期 (属于上一年开始的学年)
-    if (currentMonth >= 2 && currentMonth <= 8) {
-        zjuYearStr = (currentYear - 1).toString(); // e.g., Feb 2026 -> xnm=2025
-        zjuSemStr = "12"; // 春夏学期 xqm=12
-    } else {
-        // Sep (9) to Jan (1) -> 秋冬学期
-        if (currentMonth === 1) {
-             zjuYearStr = (currentYear - 1).toString();
-        } else {
-             zjuYearStr = currentYear.toString();
-        }
-        zjuSemStr = "3"; // 秋冬学期 xqm=3
+    let zjuYearStr = overrideYear || '';
+    let zjuSemStr = overrideSem || '';
+
+    if (!zjuYearStr || !zjuSemStr) {
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      if (currentMonth >= 2 && currentMonth <= 8) {
+        zjuYearStr = (currentYear - 1).toString();
+        zjuSemStr = "12";
+      } else {
+        zjuYearStr = (currentMonth === 1 ? currentYear - 1 : currentYear).toString();
+        zjuSemStr = "3";
+      }
     }
 
     const response: any = await invoke("fetch_timetable", { year: zjuYearStr, semester: zjuSemStr });
@@ -510,6 +567,88 @@ function formatWeekRanges(weeks: number[]): string {
   return '第 ' + ranges.join(', ') + ' 周';
 }
 
+// --- iCal Export ---
+function formatDateForICS(date: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth()+1)}${pad(date.getUTCDate())}T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}00Z`;
+}
+
+async function exportToICS() {
+  if (allCourses.value.length === 0) {
+    alert("当前没有可导出的课程数据！");
+    return;
+  }
+  
+  try {
+    const filePath = await save({
+      filters: [{ name: 'iCalendar', extensions: ['ics'] }],
+      defaultPath: `Celechron_${semesterTabs.value[activeSemIdx.value]?.label || '课表'}.ics`,
+    });
+    
+    if (!filePath) return; // User canceled dialog
+
+    let icsContent = 
+`BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Celechron//Tauri App//ZH
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:ZJU 课程表
+X-WR-TIMEZONE:Asia/Shanghai
+`;
+
+    // Baseline is week 1 Monday
+    const baseMonday = new Date(startDateMs.value);
+    
+    // We already parsed periods mapping
+    const periodTimes = periods.map(p => {
+      const parts = p.time.split('-');
+      return { start: parts[0], end: parts[1] };
+    });
+
+    const nowStr = formatDateForICS(new Date());
+
+    allCourses.value.forEach(course => {
+      course.activeWeeks.forEach(week => {
+        // Calculate date of this specific class:
+        // Base Monday + (week - 1) * 7 days + dayIdx
+        const classDate = new Date(baseMonday.getTime() + (week - 1) * 7 * 24 * 60 * 60 * 1000 + course.dayIdx * 24 * 60 * 60 * 1000);
+        
+        const pt = periodTimes[course.periodIdx];
+        const ptEnd = periodTimes[course.periodIdx + course.span - 1];
+        if (!pt || !ptEnd) return; // Safety check
+
+        // Create Start Date
+        const startDate = new Date(classDate);
+        startDate.setHours(parseInt(pt.start.split(':')[0]), parseInt(pt.start.split(':')[1]), 0);
+        
+        // Create End Date
+        const endDate = new Date(classDate);
+        endDate.setHours(parseInt(ptEnd.end.split(':')[0]), parseInt(ptEnd.end.split(':')[1]), 0);
+
+        icsContent += `BEGIN:VEVENT
+UID:${crypto.randomUUID()}
+DTSTAMP:${nowStr}
+DTSTART:${formatDateForICS(startDate)}
+DTEND:${formatDateForICS(endDate)}
+SUMMARY:${course.name}
+LOCATION:${course.location || '未知地点'}
+DESCRIPTION:${course.teacher ? `教师: ${course.teacher}` : ''}
+END:VEVENT
+`;
+      });
+    });
+
+    icsContent += "END:VCALENDAR";
+
+    await writeTextFile(filePath, icsContent);
+    alert("成功导出为 ics 文件！您可以将其导入至系统日历。");
+  } catch (e: any) {
+    console.error(e);
+    alert(`导出失败: ${e.message || e}`);
+  }
+}
+
 onMounted(() => {
   fetchTimetable();
   fetchExtraData();
@@ -532,8 +671,30 @@ onMounted(() => {
         <button class="toggle-icon-btn" :class="{active: showMonthNav}" @click="showMonthNav = !showMonthNav" title="月历导航" style="margin-left: 8px;">
           <CalendarDays :size="18"/>
         </button>
+        <button class="toggle-icon-btn" @click="exportToICS" title="导出日历(ics)">
+          <Download :size="18"/>
+        </button>
       </div>
     </header>
+
+    <!-- Semester Tabs & Stats -->
+    <div class="calendar-meta-bar">
+      <div class="semester-tabs">
+        <button 
+          v-for="(tab, idx) in semesterTabs" 
+          :key="idx"
+          class="semester-tab"
+          :class="{ active: activeSemIdx === idx }"
+          @click="switchSemester(idx)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <div class="class-hours-badge glass-panel">
+        <span class="badge-title">{{ semesterTabs[activeSemIdx]?.label.includes('春夏') ? '春/夏' : '秋/冬' }}学期课时</span>
+        <span class="badge-value">{{ classHoursStats.perTwoWeeks }} <span class="badge-unit">节 / 两周</span></span>
+      </div>
+    </div>
 
     <!-- Calibration Modal -->
     <div v-if="showCalibrateModal" class="modal-overlay" @click.self="showCalibrateModal = false">
@@ -606,11 +767,19 @@ onMounted(() => {
             cursor: 'pointer'
           }"
         >
-          <span class="course-name">{{ course.name }}</span>
-          <span class="course-loc">{{ course.location }}</span>
+          <span class="course-name" v-if="!hideCourseInfo">{{ course.name }}</span>
+          <span class="course-loc" v-if="!hideCourseInfo">{{ course.location }}</span>
         </div>
       </div>
     </section>
+
+    <!-- Hide Course Info Toggle -->
+    <div class="hide-course-settings glass-panel">
+      <span>隐藏课程信息</span>
+      <div class="toggle-switch" :class="{ active: hideCourseInfo }" @click="toggleHideCourseInfo">
+        <div class="toggle-knob"></div>
+      </div>
+    </div>
 
     <!-- Course Detail Modal -->
     <div v-if="showCourseDetail && selectedCourse" class="modal-overlay" @click.self="showCourseDetail = false">

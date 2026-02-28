@@ -13,9 +13,12 @@ pub async fn login_courses(state: &AppState) -> Result<(), String> {
 
     // Follow redirects manually, collecting cookies
     for _ in 0..10 {
-        let res = client.get(&url)
+        let res = client
+            .get(&url)
             .header("Cookie", cookies.join("; "))
-            .send().await.map_err(|e| format!("学在浙大请求失败: {}", e))?;
+            .send()
+            .await
+            .map_err(|e| format!("学在浙大请求失败: {}", e))?;
 
         // Collect new cookies
         for hv in res.headers().get_all("set-cookie").iter() {
@@ -50,10 +53,16 @@ pub async fn get_todos(state: &AppState) -> Result<Value, String> {
     let session = state.courses_session.lock().await;
     let session_cookie = session.as_ref().ok_or("学在浙大未登录")?;
 
-    let res = client.get("https://courses.zju.edu.cn/api/todos")
+    let res = client
+        .get("https://courses.zju.edu.cn/api/todos")
         .header("Cookie", session_cookie)
-        .send().await.map_err(|e| format!("作业查询失败: {}", e))?;
+        .send()
+        .await
+        .map_err(|e| format!("作业查询失败: {}", e))?;
 
-    let body: Value = res.json().await.map_err(|e| format!("作业JSON解析失败: {}", e))?;
+    let body: Value = res
+        .json()
+        .await
+        .map_err(|e| format!("作业JSON解析失败: {}", e))?;
     Ok(body)
 }

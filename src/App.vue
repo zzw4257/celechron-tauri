@@ -2,6 +2,7 @@
 import { ref, onMounted, provide } from "vue";
 import Login from "./components/Login.vue";
 import MainLayout from "./components/MainLayout.vue";
+import SearchModal from "./components/SearchModal.vue";
 import { useTheme } from "./composables/useTheme";
 
 const { applyTheme, currentTheme } = useTheme();
@@ -53,6 +54,9 @@ provide('appAccountSwitch', handleAccountSwitch);
       <Login v-if="!isLoggedIn" @login-success="handleLoginSuccess" />
       <MainLayout v-else :key="layoutKey" />
     </div>
+
+    <!-- Global Search Modal (Requires Auth) -->
+    <SearchModal v-if="isLoggedIn" />
   </main>
 </template>
 

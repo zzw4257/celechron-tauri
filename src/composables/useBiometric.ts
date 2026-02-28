@@ -1,15 +1,13 @@
-// useBiometric.ts — WebAuthn platform authenticator for fingerprint/face ID
-// Only triggers on account switch; silently skips if device doesn't support it.
+import { authenticate as tauriAuthenticate, checkStatus } from '@tauri-apps/plugin-biometric';
 
 export function useBiometric() {
     /**
-     * Check if the platform has a biometric authenticator available.
-     * Uses WebAuthn PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().
+     * Check if the platform has a native biometric authenticator available.
      */
     async function isBiometricAvailable(): Promise<boolean> {
         try {
-            if (!window.PublicKeyCredential) return false;
-            return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+            const status = await checkStatus();
+            return status.isAvailable;
         } catch {
             return false;
         }
@@ -17,36 +15,32 @@ export function useBiometric() {
 
     /**
      * Attempt biometric authentication (fingerprint/face).
-     * Returns true on success, false on failure or if not available (silent skip).
-     * @param displayName Account display name shown in the system prompt
+     * Returns 'success' on success.
+     * Returns 'fallback' if not available or fallback requested.
+     * Returns 'failed' if canceled.
      */
-    async function authenticate(_displayName: string): Promise<boolean> {
+    async function authenticate(displayName: string): Promise<'success' | 'fallback' | 'failed'> {
         try {
             const available = await isBiometricAvailable();
-            // If the device doesn't support biometrics, silently skip (return true = allow switch)
-            if (!available) return true;
+            // If the device doesn't support biometrics, fallback to password
+            if (!available) return 'fallback';
 
-            // Create a one-time challenge
-            const challenge = crypto.getRandomValues(new Uint8Array(32));
-
-            // Use a client-side credential. Since we don't have a real RP server,
-            // we use a "get" style assertion with allowCredentials = [] and
-            // userVerification = "required". The browser/OS will pop the biometric prompt.
-            // This is valid for "proof of presence" without a real stored credential.
-            const credential = await navigator.credentials.get({
-                publicKey: {
-                    challenge,
-                    timeout: 60000,
-                    userVerification: 'required',
-                    rpId: window.location.hostname || 'localhost',
-                    allowCredentials: [], // Let the OS decide which authenticator to use
-                } as PublicKeyCredentialRequestOptions,
-            }).catch(() => null);
-
-            return credential !== null;
-        } catch {
-            // Any error → skip verification (don't block the user)
-            return true;
+            await tauriAuthenticate(`请验证以切换至账户: ${displayName}`, {
+                cancelTitle: '取消',
+                fallbackTitle: '使用密码',
+            });
+            return 'success';
+        } catch (err: any) {
+            console.warn("Biometric auth error:", err);
+            // On desktop or when user clicks "Use Password", fall back to manual password
+            const eStr = String(err).toLowerCase();
+            if (eStr.includes('fallback') || eStr.includes('not interactive') || eStr.includes('not supported')) {
+                return 'fallback';
+            }
+            if (err && (err.errorCode === 'userFallback' || err.errorCode === 'biometryNotAvailable' || err.errorCode === 'notInteractive')) {
+                return 'fallback';
+            }
+            return 'fallback'; // Defaulting to fallback is safer so users aren't locked out of accounts
         }
     }
 

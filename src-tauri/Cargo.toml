@@ -23,3 +23,9 @@ regex = "1"
 hex = "0.4"
 num-bigint = "0.4"
 tauri-plugin-single-instance = "2.4.0"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-notification = "2"
+
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-biometric = "2"

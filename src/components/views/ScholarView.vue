@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
 import { LineChart } from 'echarts/charts';
@@ -51,6 +52,16 @@ const lastUpdate = ref("正在同步...");
 const isOffline = ref(false);
 const offlineTime = ref("");
 
+const settingsKey = ref(0);
+const hideGpa = ref(localStorage.getItem('hideGpa') === 'true');
+
+onMounted(() => {
+  window.addEventListener('focus', () => {
+    hideGpa.value = localStorage.getItem('hideGpa') === 'true';
+    settingsKey.value++;
+  });
+});
+
 const overallGpa = computed(() => {
   let totalEarnedCredits = 0;
   let gpaCredits = 0;
@@ -65,8 +76,47 @@ const overallGpa = computed(() => {
 
   if (!semestersList.value) return { fivePoint: 0, fourPoint: 0, fourPointLegacy: 0, hundredPoint: 0, totalCredits: 0, majorGpa: 0, majorGpaLegacy: 0, majorCredits: 0 };
 
-  semestersList.value.forEach(sem => {
+  // Make it reactive to settings changes
+  settingsKey.value;
+  const policy = localStorage.getItem('retakePolicy') || 'first';
+  
+  // Flatten all grades with their semester index to keep chronological order
+  const allFlattened: {g: any, semIdx: number}[] = [];
+  semestersList.value.forEach((sem, idx) => {
     sem.grades.forEach((g: any) => {
+      allFlattened.push({g, semIdx: idx});
+    });
+  });
+
+  // Group by course code or name to detect retakes
+  const courseGroups = new Map<string, any[]>();
+  allFlattened.forEach(({g, semIdx}) => {
+     const key = g.kcdm || g.kcmc || g.xkkh;
+     if (!courseGroups.has(key)) courseGroups.set(key, []);
+     g._semIdx = semIdx;
+     courseGroups.get(key)!.push(g);
+  });
+
+  const validGrades: any[] = [];
+  courseGroups.forEach((grades) => {
+     if (grades.length === 1) {
+       validGrades.push(grades[0]);
+     } else {
+       if (policy === 'highest') {
+         // Sort descending by fivePoint
+         grades.sort((a, b) => (b.fivePoint || 0) - (a.fivePoint || 0));
+         validGrades.push(grades[0]);
+       } else {
+         // 'first' attempt. Sort ascending by semIdx (assuming 0 is earliest semester).
+         // If semestersList is returned newest-first, then higher idx = older semester.
+         // Usually ZJU transcript is earliest first, so lower idx = older. 
+         grades.sort((a, b) => a._semIdx - b._semIdx);
+         validGrades.push(grades[0]);
+       }
+     }
+  });
+
+  validGrades.forEach((g: any) => {
       let credit = g.credit || g.xf || 0;
       let fiveP = g.fivePoint || 0;
       let fourP = g.fourPoint || 0;
@@ -123,7 +173,6 @@ const overallGpa = computed(() => {
           }
         }
       }
-    });
   });
 
   return {
@@ -139,14 +188,14 @@ const overallGpa = computed(() => {
 });
 
 const gradeItems = [
-  { label: "五分制", value: () => overallGpa.value.fivePoint.toFixed(2), color: "#06b6d4" },
+  { label: "五分制", value: () => hideGpa.value ? '****' : overallGpa.value.fivePoint.toFixed(2), color: "#06b6d4" },
   { label: "获得学分", value: () => overallGpa.value.totalCredits.toFixed(1), color: "#f97316" },
-  { label: "四分制(4.3)", value: () => overallGpa.value.fourPoint.toFixed(2), color: "#22c55e" },
-  { label: "主修四分制(4.3)", value: () => overallGpa.value.majorGpa.toFixed(2), color: "#ec4899" },
+  { label: "四分制(4.3)", value: () => hideGpa.value ? '****' : overallGpa.value.fourPoint.toFixed(2), color: "#22c55e" },
+  { label: "主修四分制(4.3)", value: () => hideGpa.value ? '****' : overallGpa.value.majorGpa.toFixed(2), color: "#ec4899" },
   { label: "主修学分", value: () => overallGpa.value.majorCredits.toFixed(1), color: "#eab308" },
-  { label: "百分制", value: () => overallGpa.value.hundredPoint.toFixed(2), color: "#a855f7" },
-  { label: "四分制(4.0)", value: () => overallGpa.value.fourPointLegacy.toFixed(2), color: "#10b981" },
-  { label: "主修四分制(4.0)", value: () => overallGpa.value.majorGpaLegacy.toFixed(2), color: "#f43f5e" },
+  { label: "百分制", value: () => hideGpa.value ? '****' : overallGpa.value.hundredPoint.toFixed(2), color: "#a855f7" },
+  { label: "四分制(4.0)", value: () => hideGpa.value ? '****' : overallGpa.value.fourPointLegacy.toFixed(2), color: "#10b981" },
+  { label: "主修四分制(4.0)", value: () => hideGpa.value ? '****' : overallGpa.value.majorGpaLegacy.toFixed(2), color: "#f43f5e" },
 ];
 
 const customGpaMode = ref(false);
@@ -542,13 +591,48 @@ async function fetchData() {
     });
 
     // Pre-select all courses for custom GPA mode
+    // And also check for newly released grades at the same time
     const allCourseIds = new Set<string>();
+    const gradedCourseKeys = new Set<string>();
+    
     semestersList.value.forEach((sem: any) => {
       sem.grades.forEach((g: any) => {
         allCourseIds.add(g.xkkh);
+        
+        // If course has a grade
+        const cjStr = g.cj?.toString().trim() || "";
+        if (!["待录", "缓考", "无效"].includes(cjStr) && cjStr !== "") {
+          gradedCourseKeys.add(g.xkkh);
+        }
       });
     });
     customGpaSelected.value = allCourseIds;
+
+    // Check for notifications
+    const cachedGradesStr = localStorage.getItem('knownGradedCourses');
+    if (cachedGradesStr && data._meta?.source !== "cache") {
+       const knownGrades = new Set<string>(JSON.parse(cachedGradesStr));
+       const newGrades = [...gradedCourseKeys].filter(k => !knownGrades.has(k));
+       
+       if (newGrades.length > 0) {
+         // We have new grades! Let's notify the user
+         let permissionGranted = await isPermissionGranted();
+         if (!permissionGranted) {
+           const permission = await requestPermission();
+           permissionGranted = permission === 'granted';
+         }
+         if (permissionGranted) {
+           sendNotification({
+             title: '🎉 成绩更新通知',
+             body: `您共有 ${newGrades.length} 门课程的新成绩出炉了！快来看看吧。`
+           });
+         }
+       }
+    }
+    // Update the cache
+    if (data._meta?.source !== "cache") {
+      localStorage.setItem('knownGradedCourses', JSON.stringify([...gradedCourseKeys]));
+    }
 
     if (semestersList.value.length > 0) {
       semester.value.examCount = data.exams?.length || 0;
@@ -698,11 +782,11 @@ onMounted(() => {
           <span class="stat-label">学期学分</span>
         </div>
         <div class="stat-item">
-          <span class="stat-value">{{ semesterGpa[0].toFixed(2) }}</span>
+          <span class="stat-value">{{ hideGpa ? '****' : semesterGpa[0].toFixed(2) }}</span>
           <span class="stat-label">学期五分制</span>
         </div>
         <div class="stat-item">
-          <span class="stat-value">{{ semesterGpa[1].toFixed(2) }}</span>
+          <span class="stat-value">{{ hideGpa ? '****' : semesterGpa[1].toFixed(2) }}</span>
           <span class="stat-label">学期(4.3)</span>
         </div>
       </div>
@@ -731,12 +815,12 @@ onMounted(() => {
               placeholder="预估百制" 
               @click.stop 
             />
-            <span v-else class="course-item-score" :class="{ 'failed': parseFloat(course.jd) === 0 }">{{ course.cj }}</span>
+            <span v-else class="course-item-score" :class="{ 'failed': parseFloat(course.jd) === 0 }">{{ hideGpa ? '****' : course.cj }}</span>
           </div>
           <div class="course-item-details" :style="{ paddingLeft: customGpaMode ? '24px' : '0' }">
             <span>学分: {{ course.credit }}</span>
-            <span>五分: {{ course.fivePoint?.toFixed(2) }}</span>
-            <span>四分(4.3): {{ course.fourPoint?.toFixed(2) }}</span>
+            <span>五分: {{ hideGpa ? '****' : course.fivePoint?.toFixed(2) }}</span>
+            <span>四分(4.3): {{ hideGpa ? '****' : course.fourPoint?.toFixed(2) }}</span>
             <span>类别: {{ course.kcxzmc || course.kclbmc || '未知' }}</span>
           </div>
         </div>

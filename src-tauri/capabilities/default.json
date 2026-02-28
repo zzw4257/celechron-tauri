@@ -8,6 +8,9 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "dialog:default",
+    "fs:default",
+    "notification:default"
   ]
 }

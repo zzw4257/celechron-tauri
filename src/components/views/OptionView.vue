@@ -10,6 +10,20 @@ const { currentTheme, THEMES, setTheme, isLightMode, toggleLightMode, glassEffec
 const { accounts, addAccount, removeAccount, updateNickname, getPassword, accountDisplayName, isFull } = useAccounts();
 const { authenticate } = useBiometric();
 
+// Academic Settings
+const hideGpa = ref(localStorage.getItem('hideGpa') === 'true');
+const retakePolicy = ref(localStorage.getItem('retakePolicy') || 'first');
+
+function toggleHideGpa() {
+  hideGpa.value = !hideGpa.value;
+  localStorage.setItem('hideGpa', hideGpa.value.toString());
+}
+
+function setRetakePolicy(pol: string) {
+  retakePolicy.value = pol;
+  localStorage.setItem('retakePolicy', pol);
+}
+
 // Injected from App.vue for clean logout/switch
 const appLogout = inject<() => void>('appLogout', () => { window.location.reload(); });
 const appAccountSwitch = inject<() => void>('appAccountSwitch', () => {});
@@ -50,19 +64,36 @@ async function switchAccount(acc: SavedAccount) {
   const displayName = accountDisplayName(acc);
   switchStatus.value = `等待验证...`;
   
-  const authOk = await authenticate(displayName);
-  if (!authOk) {
+  const authStatus = await authenticate(displayName);
+  
+  if (authStatus === 'failed') {
     switchStatus.value = "系统生物验证取消或失败";
     setTimeout(() => { switchStatus.value = ""; }, 3000);
     return;
+  }
+
+  const realPwd = await getPassword(acc);
+
+  if (authStatus === 'fallback') {
+    // If biometric is unavailable or errored out, ask for password to verify
+    const inputPwd = window.prompt(`需要验证身份。请输入账户 ${displayName} 的密码：`);
+    if (inputPwd === null) {
+      switchStatus.value = "已取消身份验证";
+      setTimeout(() => { switchStatus.value = ""; }, 3000);
+      return;
+    }
+    if (inputPwd !== realPwd) {
+      switchStatus.value = "密码错误，验证失败";
+      setTimeout(() => { switchStatus.value = ""; }, 3000);
+      return;
+    }
   }
 
   isSwitching.value = true;
   switchStatus.value = `正在切换至 ${displayName}...`;
   
   try {
-    const plainPwd = await getPassword(acc);
-    await invoke("login_zju_command", { username: acc.username, password: plainPwd });
+    await invoke("login_zju_command", { username: acc.username, password: realPwd });
     switchStatus.value = "切换成功，刷新数据中...";
     isSwitching.value = false;
     // Trigger App.vue to remount MainLayout (refetch all data)
@@ -186,6 +217,46 @@ function deleteAccount(id: string) {
                   </div>
                 </div>
 
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Academic Settings -->
+      <section class="settings-group">
+        <h3 class="group-title">教务</h3>
+        <div class="settings-card">
+          <!-- Retake Policy -->
+          <div class="setting-item" style="cursor: default;">
+            <div class="setting-info" style="align-items: center; justify-content: space-between; width: 100%;">
+              <div class="setting-text">
+                <span class="setting-name">重修绩点计算</span>
+              </div>
+              <div class="segmented-control glass-panel" style="display: flex; gap: 4px; padding: 4px; border-radius: 8px;">
+                <button 
+                  class="seg-btn" 
+                  :class="{ active: retakePolicy === 'first' }" 
+                  @click="setRetakePolicy('first')"
+                  style="border: none; background: transparent; padding: 4px 12px; border-radius: 6px; cursor: pointer; color: var(--text-color);"
+                >取首次</button>
+                <button 
+                  class="seg-btn" 
+                  :class="{ active: retakePolicy === 'highest' }" 
+                  @click="setRetakePolicy('highest')"
+                  style="border: none; background: transparent; padding: 4px 12px; border-radius: 6px; cursor: pointer; color: var(--text-color);"
+                >取最高</button>
+              </div>
+            </div>
+          </div>
+          <!-- Hide GPA -->
+          <div class="setting-item" style="cursor: default; border-bottom: none;">
+            <div class="setting-info" style="align-items: center; justify-content: space-between; width: 100%;">
+              <div class="setting-text">
+                <span class="setting-name">隐藏绩点</span>
+              </div>
+              <div class="toggle-switch" :class="{ active: hideGpa }" @click="toggleHideGpa">
+                <div class="toggle-knob"></div>
               </div>
             </div>
           </div>

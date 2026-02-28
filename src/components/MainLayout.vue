@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, inject } from "vue";
-import { Clock, CalendarDays, CheckSquare, GraduationCap, Settings, LogOut } from "lucide-vue-next";
+import { Clock, CalendarDays, CheckSquare, GraduationCap, Settings, LogOut, Search } from "lucide-vue-next";
 
 import FlowView from "./views/FlowView.vue";
 import CalendarView from "./views/CalendarView.vue";
@@ -19,6 +19,12 @@ const tabs = [
 ];
 
 const logout = inject<() => void>('appLogout', () => { window.location.reload(); });
+
+const triggerGlobalSearch = () => {
+  if (typeof (window as any).__toggleGlobalSearch === 'function') {
+    (window as any).__toggleGlobalSearch();
+  }
+};
 </script>
 
 <template>
@@ -47,6 +53,11 @@ const logout = inject<() => void>('appLogout', () => { window.location.reload();
           <component :is="tab.icon" class="nav-icon" :size="24" :stroke-width="activeTab === tab.id ? 2.5 : 2" />
           <span class="nav-label">{{ tab.label }}</span>
         </button>
+
+        <div class="nav-item logout-btn" @click="triggerGlobalSearch" title="全局搜索 (Cmd+K)">
+           <Search class="nav-icon" :size="24" />
+           <span class="nav-label">搜索</span>
+        </div>
 
         <div class="nav-item logout-btn" @click="logout" title="Log out">
            <LogOut class="nav-icon" :size="24" />
