@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import Login from "./components/Login.vue";
 import MainLayout from "./components/MainLayout.vue";
 import { useTheme } from "./composables/useTheme";
 
 const { applyTheme, currentTheme } = useTheme();
-applyTheme(currentTheme.value);
 
 const isLoggedIn = ref(false);
+
+onMounted(() => {
+  applyTheme(currentTheme.value);
+  if (localStorage.getItem("lastLogin")) {
+    isLoggedIn.value = true;
+  }
+});
+
 function handleLoginSuccess() {
+  localStorage.setItem("lastLogin", "true");
   isLoggedIn.value = true;
 }
 </script>

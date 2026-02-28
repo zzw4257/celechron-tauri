@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { useAccounts, type SavedAccount } from "../composables/useAccounts";
+import { useBiometric } from "../composables/useBiometric";
 
 const emit = defineEmits(['login-success']);
+
+const { accounts, addAccount, getPassword, accountDisplayName } = useAccounts();
+const { authenticate } = useBiometric();
 
 const username = ref("");
 const password = ref("");
 const status = ref("");
 const isLoading = ref(false);
+
+// Save Account Modal State
+const showSaveModal = ref(false);
+const pendingSaveNickname = ref("");
+const currentLoginCreds = ref({ username: "", password: "" });
 
 async function login() {
   if (!username.value || !password.value) return;
@@ -19,12 +29,63 @@ async function login() {
     }
     const res = await invoke("login_zju_command", { username: username.value, password: password.value });
     status.value = res as string;
-    emit('login-success');
+    
+    // Check if account already exists
+    const exists = accounts.value.some(a => a.username === username.value);
+    
+    if (!exists) {
+      currentLoginCreds.value = { username: username.value, password: password.value };
+      showSaveModal.value = true;
+    } else {
+      emit('login-success');
+    }
   } catch (err: any) {
     status.value = typeof err === "string" ? err : (err.message || "登录失败");
   } finally {
     isLoading.value = false;
   }
+}
+
+async function quickLogin(acc: SavedAccount) {
+  if (isLoading.value) return;
+  
+  // 1. Biometric Auth
+  const displayName = accountDisplayName(acc);
+  status.value = `等待验证...`;
+  const authOk = await authenticate(displayName);
+  if (!authOk) {
+    status.value = "系统生物验证取消或失败";
+    return;
+  }
+
+  // 2. Decrypt & Login
+  isLoading.value = true;
+  status.value = `正在登录 ${displayName}...`;
+  try {
+    const plainPwd = await getPassword(acc);
+    const res = await invoke("login_zju_command", { username: acc.username, password: plainPwd });
+    status.value = res as string;
+    emit('login-success');
+  } catch (err: any) {
+    status.value = typeof err === "string" ? err : (err.message || "快速登录失败");
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function confirmSaveAccount() {
+  await addAccount(
+    currentLoginCreds.value.username, 
+    currentLoginCreds.value.password, 
+    pendingSaveNickname.value
+  );
+  showSaveModal.value = false;
+  emit('login-success');
+}
+
+function skipSaveAccount() {
+  showSaveModal.value = false;
+  emit('login-success');
 }
 </script>
 
@@ -36,6 +97,24 @@ async function login() {
         <div class="logo-icon">⏱</div>
         <h1 class="logo-text">Celechron</h1>
         <p class="logo-sub">浙大时间管理助手</p>
+      </div>
+
+      <!-- Quick Accounts -->
+      <div v-if="accounts.length > 0" class="quick-accounts">
+        <p class="section-title">快速登录</p>
+        <div class="account-list">
+          <button 
+            v-for="acc in accounts" 
+            :key="acc.id"
+            class="account-chip"
+            @click="quickLogin(acc)"
+            :disabled="isLoading"
+          >
+            <span class="acc-avatar">{{ (acc.nickname || acc.username).charAt(0).toUpperCase() }}</span>
+            <span class="acc-name">{{ accountDisplayName(acc) }}</span>
+          </button>
+        </div>
+        <div class="divider"><span>或使用密码登录</span></div>
       </div>
 
       <!-- Form -->
@@ -74,11 +153,29 @@ async function login() {
         </button>
 
         <div class="status-row">
-          <p v-if="status" class="status-text" :class="{ error: status.includes('失败') || status.includes('Error') || status.includes('error') }">
+          <p v-if="status" class="status-text" :class="{ error: status.includes('失败') || status.includes('Error') || status.includes('error') || status.includes('取消') }">
             {{ status }}
           </p>
         </div>
       </form>
+    </div>
+
+    <!-- Save Account Modal -->
+    <div v-if="showSaveModal" class="modal-overlay">
+      <div class="modal-content">
+        <h3>保存账户?</h3>
+        <p>将账户加密保存到本机，下次可通过指纹或面容快速登录。</p>
+        <input 
+          v-model="pendingSaveNickname" 
+          class="field-input modal-input" 
+          placeholder="备注名 (选填，例如：常用号)"
+          maxlength="10"
+        />
+        <div class="modal-actions">
+          <button class="btn-cancel" @click="skipSaveAccount">不保存</button>
+          <button class="btn-confirm" @click="confirmSaveAccount">保存</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -296,5 +393,156 @@ async function login() {
 }
 
 :global(.dark-theme) .status-text { color: #38bdf8; }
-:global(.dark-theme) .status-text.error { color: #f87171; }
+/* ─── Quick Accounts ─── */
+.quick-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: -1rem;
+}
+
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  margin: 0;
+  padding-left: 2px;
+}
+:global(.dark-theme) .section-title {
+  color: #94a3b8;
+}
+
+.account-list {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.account-list::-webkit-scrollbar { display: none; }
+
+.account-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 6px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+:global(.dark-theme) .account-chip {
+  background: #334155;
+  border: 1px solid #475569;
+}
+.account-chip:hover:not(:disabled) {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+}
+:global(.dark-theme) .account-chip:hover:not(:disabled) {
+  background: #475569;
+  border-color: #64748b;
+}
+
+.acc-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #0ea5e9;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.acc-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+:global(.dark-theme) .acc-name {
+  color: #e2e8f0;
+}
+
+/* ─── Divider ─── */
+.divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  margin: 0.5rem 0;
+}
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #e2e8f0;
+}
+.divider span { padding: 0 10px; }
+:global(.dark-theme) .divider::before, :global(.dark-theme) .divider::after {
+  border-bottom: 1px solid #334155;
+}
+
+/* ─── Modal ─── */
+.modal-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.4);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  z-index: 100;
+}
+
+.modal-content {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 320px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+:global(.dark-theme) .modal-content {
+  background: #1e293b;
+  border: 1px solid #334155;
+}
+
+.modal-content h3 { margin: 0; font-size: 1.2rem; }
+.modal-content p { margin: 0; font-size: 0.85rem; color: #64748b; line-height: 1.4; }
+:global(.dark-theme) .modal-content h3 { color: white; }
+:global(.dark-theme) .modal-content p { color: #94a3b8; }
+
+.modal-input { margin-bottom: 0.5rem; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.btn-cancel {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-confirm {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: #0ea5e9;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
 </style>

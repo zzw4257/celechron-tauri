@@ -3,22 +3,23 @@ import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { LogOut, RefreshCw, Palette, SunMoon, Layers } from "lucide-vue-next";
 import { useTheme, type ThemeType } from "../../composables/useTheme";
+import { useAccounts, type SavedAccount } from "../../composables/useAccounts";
+import { useBiometric } from "../../composables/useBiometric";
 
 const { currentTheme, THEMES, setTheme, isLightMode, toggleLightMode, glassEffect, setGlassEffect } = useTheme();
+const { accounts, removeAccount, updateNickname, getPassword, accountDisplayName } = useAccounts();
+const { authenticate } = useBiometric();
 
 const isRefreshing = ref(false);
+const isSwitching = ref(false);
+const switchStatus = ref("");
 
 async function handleRefresh() {
   if (isRefreshing.value) return;
   isRefreshing.value = true;
   try {
-    // We could technically just trigger all network calls again or clear cache
-    // A simple refresh strategy is to refetch Scholar. Because caching logic wraps failures, 
-    // real forcing might require a dedicated backend command if cache overrides are disabled,
-    // but right now it fetches network first anyway.
     await invoke("fetch_scholar_data");
     await invoke("fetch_todos");
-    // Show a success toast or just spin for 1s
     await new Promise(r => setTimeout(r, 800));
   } catch (e) {
     console.error(e);
@@ -28,10 +29,49 @@ async function handleRefresh() {
 }
 
 function handleLogout() {
-  // Clear any stored flags
   localStorage.removeItem("lastLogin");
-  // Hard reload the window to reset all vue state and drop to Login screen
   window.location.reload();
+}
+
+async function switchAccount(acc: SavedAccount) {
+  if (isSwitching.value) return;
+  
+  const displayName = accountDisplayName(acc);
+  switchStatus.value = `等待验证...`;
+  
+  const authOk = await authenticate(displayName);
+  if (!authOk) {
+    switchStatus.value = "系统生物验证取消或失败";
+    setTimeout(() => { switchStatus.value = ""; }, 3000);
+    return;
+  }
+
+  isSwitching.value = true;
+  switchStatus.value = `正在切换至 ${displayName}...`;
+  
+  try {
+    const plainPwd = await getPassword(acc);
+    await invoke("login_zju_command", { username: acc.username, password: plainPwd });
+    switchStatus.value = "切换成功，正在重新加载...";
+    // Reload to refresh all data globally with the new cookies
+    setTimeout(() => { window.location.reload(); }, 500);
+  } catch (err: any) {
+    switchStatus.value = typeof err === "string" ? err : (err.message || "切换失败");
+    isSwitching.value = false;
+  }
+}
+
+function promptEditNickname(acc: SavedAccount) {
+  const newName = window.prompt("请输入新备注名 (留空可清除备注)", acc.nickname);
+  if (newName !== null) {
+    updateNickname(acc.id, newName);
+  }
+}
+
+function deleteAccount(id: string) {
+  if (window.confirm("确定要删除此保存的账户吗？\n删除后只能通过密码重新登录。")) {
+    removeAccount(id);
+  }
 }
 </script>
 
@@ -137,14 +177,45 @@ function handleLogout() {
 
       <!-- Account Settings -->
       <section class="settings-group">
-        <h3 class="group-title">账户</h3>
+        <h3 class="group-title">账户管理</h3>
         <div class="settings-card">
-          <div class="setting-item danger" @click="handleLogout">
+          <!-- Current & Saved Accounts List -->
+          <div class="account-mgmt-list">
+            <div 
+              v-for="acc in accounts" 
+              :key="acc.id"
+              class="account-row"
+            >
+              <div class="acc-info">
+                <span class="acc-avatar">{{ (acc.nickname || acc.username).charAt(0).toUpperCase() }}</span>
+                <div class="acc-details">
+                  <span class="acc-title">{{ accountDisplayName(acc) }}</span>
+                  <span class="acc-sub">{{ acc.username }}</span>
+                </div>
+              </div>
+              <div class="acc-actions">
+                <button class="btn-text btn-switch" @click.stop="switchAccount(acc)" :disabled="isSwitching">切换</button>
+                <button class="btn-text btn-edit" @click.stop="promptEditNickname(acc)">备注</button>
+                <button class="btn-text btn-delete" @click.stop="deleteAccount(acc.id)">删除</button>
+              </div>
+            </div>
+            
+            <div v-if="accounts.length === 0" class="no-accounts">
+              没有保存的快速账户。<br/>下次登录成功后系统会提示保存。
+            </div>
+          </div>
+
+          <!-- Status Indicator for Switching -->
+          <div v-if="switchStatus" class="switch-status" :class="{ error: switchStatus.includes('失败') || switchStatus.includes('取消') }">
+            {{ switchStatus }}
+          </div>
+
+          <div class="setting-item danger" @click="handleLogout" style="border-top: 1px solid rgba(0,0,0,0.05); margin-top: 0.5rem; padding-top: 1.2rem;">
             <div class="setting-info">
               <LogOut class="setting-icon" />
               <div class="setting-text">
-                <span class="setting-name">退出登录</span>
-                <span class="setting-desc">清除本地缓存并返回登录页</span>
+                <span class="setting-name">退出当前登录</span>
+                <span class="setting-desc">清除当期会话并返回登录页，不影响已保存的快速账户</span>
               </div>
             </div>
           </div>
@@ -448,4 +519,116 @@ function handleLogout() {
 @media (max-width: 600px) {
   .option-view { padding: 1rem 1rem 6rem; }
 }
+
+/* ─── Account Management ─── */
+.account-mgmt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.account-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  transition: background 0.2s;
+}
+:global(.dark-theme) .account-row {
+  background: #0f172a;
+  border-color: #334155;
+}
+.acc-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.acc-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.acc-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.acc-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:global(.dark-theme) .acc-title { color: #f1f5f9; }
+.acc-sub {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+:global(.dark-theme) .acc-sub { color: #94a3b8; }
+.acc-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.btn-text {
+  background: transparent;
+  border: none;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+.btn-switch { color: #0ea5e9; }
+.btn-switch:hover { background: rgba(14,165,233,0.1); }
+.btn-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-edit { color: #64748b; }
+.btn-edit:hover { background: rgba(100,116,139,0.1); }
+:global(.dark-theme) .btn-edit { color: #94a3b8; }
+.btn-delete { color: #dc2626; }
+.btn-delete:hover { background: rgba(220,38,38,0.1); }
+:global(.dark-theme) .btn-delete { color: #f87171; }
+.no-accounts {
+  text-align: center;
+  padding: 24px;
+  color: #64748b;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed #cbd5e1;
+}
+:global(.dark-theme) .no-accounts {
+  background: #0f172a;
+  border-color: #334155;
+  color: #94a3b8;
+}
+.switch-status {
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #f0f9ff;
+  color: #0284c7;
+  font-size: 0.85rem;
+  text-align: center;
+  font-weight: 500;
+}
+:global(.dark-theme) .switch-status { background: #0c4a6e; color: #38bdf8; }
+.switch-status.error { background: #fef2f2; color: #dc2626; }
+:global(.dark-theme) .switch-status.error { background: #450a0a; color: #f87171; }
 </style>
