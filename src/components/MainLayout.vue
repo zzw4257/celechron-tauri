@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, inject } from "vue";
 import { Clock, CalendarDays, CheckSquare, GraduationCap, Settings, LogOut } from "lucide-vue-next";
 
 import FlowView from "./views/FlowView.vue";
@@ -18,10 +18,7 @@ const tabs = [
   { id: "option", label: "设置", icon: Settings, component: OptionView },
 ];
 
-const logout = () => {
-  // Simple reload to clear state and go back to login
-  window.location.reload();
-};
+const logout = inject<() => void>('appLogout', () => { window.location.reload(); });
 </script>
 
 <template>

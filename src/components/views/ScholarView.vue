@@ -1082,6 +1082,42 @@ onMounted(() => {
   .stats-row { flex-wrap: wrap; gap: 10px; }
 }
 
+@media (max-width: 768px) {
+  .scholar-view { padding: 1.2rem 1rem 6rem; }
+  .scholar-header h1 { font-size: 1.3rem; }
+
+  /* GPA stats compact */
+  .stat-value { font-size: 1.3rem; }
+  .stat-label { font-size: 0.7rem; }
+  .stats-row { gap: 8px; flex-wrap: wrap; }
+
+  /* Course grid: 1 column on narrow */
+  .grade-grid { grid-template-columns: 1fr; gap: 10px; }
+
+  /* Course cards compact */
+  .course-item-card { border-radius: 12px; }
+  .course-item-header { padding: 8px 12px; }
+  .course-item-name { font-size: 0.85rem; }
+  .course-item-details { padding: 6px 12px; gap: 4px; }
+
+  /* Exam cards compact */
+  .exam-card { padding: 10px 12px; }
+  .exam-title { font-size: 0.9rem; }
+
+  /* Semester nav compact */
+  .sem-nav-btn { padding: 4px 10px; font-size: 0.78rem; }
+
+  /* Section cards */
+  .section-card { padding: 1rem; border-radius: 14px; }
+  .section-header { margin-bottom: 0.8rem; }
+
+  /* Rule text */
+  .rule-content p { font-size: 0.8rem; }
+
+  /* Todo cards */
+  .todo-card { padding: 8px 10px; }
+}
+
 .semester-scroll-nav {
   display: flex;
   gap: 8px;

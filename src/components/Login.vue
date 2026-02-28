@@ -545,4 +545,11 @@ function skipSaveAccount() {
   font-weight: 600;
   cursor: pointer;
 }
+
+@media (max-width: 768px) {
+  .login-card { padding: 2rem 1.5rem; max-width: 360px; }
+  .logo-icon { font-size: 1.8rem; }
+  .logo-text { font-size: 1.5rem; }
+  .logo-subtitle { font-size: 0.75rem; }
+}
 </style>
