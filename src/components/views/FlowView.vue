@@ -58,7 +58,8 @@ async function loadFlow() {
       }
     });
 
-    // Determine current semester
+    // Determine current semester — match CalendarView and backend format
+    // Backend expects: year = "2025" (xnm), semester = "12" (xqm for 春夏) or "3" (秋冬)
     const now = new Date();
     const month = now.getMonth() + 1;
     const year = now.getFullYear();
@@ -66,17 +67,19 @@ async function loadFlow() {
     let zjuSemStr = '';
     
     if (month >= 2 && month <= 8) {
-      zjuSemStr = "2"; // 春夏
-      zjuYearStr = `${year - 1}-${year}`;
+      zjuYearStr = (year - 1).toString(); // e.g., Feb 2026 → xnm=2025
+      zjuSemStr = "12"; // 春夏学期 xqm=12
     } else {
-      zjuSemStr = "1"; // 秋冬
-      const startYear = month === 1 ? year - 1 : year;
-      zjuYearStr = `${startYear}-${startYear + 1}`;
+      if (month === 1) {
+        zjuYearStr = (year - 1).toString();
+      } else {
+        zjuYearStr = year.toString();
+      }
+      zjuSemStr = "3"; // 秋冬学期 xqm=3
     }
 
-    // 2. Fetch Timetable
-    const ttRes: any = await invoke("fetch_timetable", { year: zjuYearStr, semester: zjuSemStr });
-    const timetable = ttRes.timetable || [];
+    // 2. Fetch Timetable — backend returns Vec<Value> directly (array)
+    const timetable: any[] = await invoke("fetch_timetable", { year: zjuYearStr, semester: zjuSemStr });
     
     const startDateMs = parseInt(localStorage.getItem('semester_start_ms') || '0');
     let colorIdx = 0;

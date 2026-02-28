@@ -58,9 +58,14 @@ async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Va
         let xnm = grade.get("xnm").and_then(|v| v.as_str()).unwrap_or("未知");
         let xqm = grade.get("xqm").and_then(|v| v.as_str()).unwrap_or("?");
         let term_name = match xqm {
+            "1"  => format!("{}-{} 秋", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
+            "2"  => format!("{}-{} 冬", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
             "3"  => format!("{}-{} 秋冬", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
+            "4"  => format!("{}-{} 春", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
+            "8"  => format!("{}-{} 夏", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
             "12" => format!("{}-{} 春夏", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
-            _    => format!("{} ({})", xnm, xqm),
+            "16" => format!("{}-{} 短学期", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
+            _    => format!("{}-{} 第{}学期", xnm, xnm.parse::<u32>().unwrap_or(0) + 1, xqm),
         };
 
         // Extract credit (xf field from API)

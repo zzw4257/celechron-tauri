@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { LayoutGrid, CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRange, Hash } from "lucide-vue-next";
+import { CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRange, Hash } from "lucide-vue-next";
 
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 // ZJU 标准 12 节课时间表 (每节独立)
@@ -38,7 +38,7 @@ const allCourses = ref<CourseSlot[]>([]);
 const allTodos = ref<any[]>([]);
 const allExams = ref<any[]>([]);
 
-const viewMode = ref<'week'|'month'>('week');
+const showMonthNav = ref(false);
 const selectedDate = ref(new Date());
 
 const totalWeeks = ref(18); // Typical ZJU semester is 16-18 weeks
@@ -259,9 +259,8 @@ const monthDays = computed(() => {
   return days;
 });
 
-const monthDisplayStr = computed(() => {
-  return `${monthViewDate.value.getFullYear()} 年 ${monthViewDate.value.getMonth() + 1} 月`;
-});
+
+
 
 function isInViewedWeek(date: Date): boolean {
   const monday = viewedMondayDate.value.getTime();
@@ -522,27 +521,17 @@ onMounted(() => {
     <header class="cal-header">
       <div class="cal-title-section">
         <h1>日程</h1>
-        <span class="month-label">{{ viewMode === 'week' ? currentMonthStr : monthDisplayStr }}</span>
+        <span class="month-label">{{ currentMonthStr }}</span>
       </div>
       <div class="week-selector">
-        <div class="view-toggle" style="display: flex; gap: 4px; margin-right: 12px; background: rgba(255,255,255,0.05); padding: 4px; border-radius: 8px;">
-          <button class="toggle-icon-btn" :class="{active: viewMode === 'week'}" @click="viewMode = 'week'"><LayoutGrid :size="18"/></button>
-          <button class="toggle-icon-btn" :class="{active: viewMode === 'month'}" @click="viewMode = 'month'"><CalendarDays :size="18"/></button>
-        </div>
-        <template v-if="viewMode === 'week'">
-          <button class="week-btn" @click="currentWeek = currentWeek - 1">‹</button>
-          <span class="week-label" @click="calibrateWeekInput = getRealCurrentWeek(); showCalibrateModal = true" style="cursor: pointer; text-decoration: underline dashed rgba(255,255,255,0.3); text-underline-offset: 4px;" title="点击校准周数">
-            {{ semesterLabel }} · 第 {{ currentWeek }} 周 / {{ totalWeeks }}
-          </span>
-          <button class="week-btn" @click="currentWeek = currentWeek + 1">›</button>
-        </template>
-        <template v-else>
-          <button class="week-btn" @click="currentWeek = currentWeek - 4">‹</button>
-          <span class="week-label" @click="calibrateWeekInput = getRealCurrentWeek(); showCalibrateModal = true" style="cursor: pointer; text-decoration: underline dashed rgba(255,255,255,0.3); text-underline-offset: 4px;" title="点击校准周数">
-            {{ monthDisplayStr }} · 第 {{ currentWeek }} 周
-          </span>
-          <button class="week-btn" @click="currentWeek = currentWeek + 4">›</button>
-        </template>
+        <button class="week-btn" @click="currentWeek = currentWeek - 1">‹</button>
+        <span class="week-label" @click="calibrateWeekInput = getRealCurrentWeek(); showCalibrateModal = true" style="cursor: pointer; text-decoration: underline dashed rgba(255,255,255,0.3); text-underline-offset: 4px;" title="点击校准周数">
+          {{ semesterLabel }} · 第 {{ currentWeek }} 周 / {{ totalWeeks }}
+        </span>
+        <button class="week-btn" @click="currentWeek = currentWeek + 1">›</button>
+        <button class="toggle-icon-btn" :class="{active: showMonthNav}" @click="showMonthNav = !showMonthNav" title="月历导航" style="margin-left: 8px;">
+          <CalendarDays :size="18"/>
+        </button>
       </div>
     </header>
 
@@ -583,7 +572,7 @@ onMounted(() => {
     </section>
 
     <!-- Weekly Grid -->
-    <section v-if="viewMode === 'week'" class="schedule-grid-container">
+    <section class="schedule-grid-container">
       <div class="schedule-grid">
         <!-- Row 1: Corner + Day Headers (auto-placed) -->
         <div class="grid-corner" :style="{ gridRow: 1, gridColumn: 1 }"></div>
@@ -663,7 +652,7 @@ onMounted(() => {
     </div>
 
     <!-- Monthly Grid -->
-    <section v-else class="month-grid-container fade-in">
+    <section v-if="showMonthNav" class="month-grid-container fade-in" style="margin-top: 1rem;">
       <div class="month-grid glass-panel">
         <div v-for="day in weekDays" :key="day" class="month-day-header">{{ day }}</div>
         
