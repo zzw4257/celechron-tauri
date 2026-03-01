@@ -1,0 +1,11 @@
+{
+  "src/components/Login.vue": 60,
+  "src/components/MainLayout.vue": 1,
+  "src/components/PomodoroWidget.vue": 21,
+  "src/components/SearchModal.vue": 32,
+  "src/components/views/CalendarView.vue": 152,
+  "src/components/views/FlowView.vue": 39,
+  "src/components/views/OptionView.vue": 103,
+  "src/components/views/ScholarView.vue": 146,
+  "src/components/views/TaskView.vue": 46
+}

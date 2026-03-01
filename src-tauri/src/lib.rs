@@ -1,16 +1,25 @@
+mod api;
 mod courses;
+mod gpa;
 mod zdbk;
 mod zjuam;
 
-use serde_json::Value;
+use crate::api::{cache_read_envelope, cache_write_envelope, envelope};
+use crate::gpa::{
+    apply_simulated_score, compute_gpa_by_policy, enrich_grade, extract_semester_name, RetakePolicy,
+};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 #[cfg(desktop)]
 use tauri::Manager;
+use tauri::{AppHandle, State};
 use zjuam::AppState;
 
 #[tauri::command]
 async fn login_zju_command(
-    state: tauri::State<'_, Arc<AppState>>,
+    state: State<'_, Arc<AppState>>,
     username: String,
     password: String,
 ) -> Result<String, String> {
@@ -35,7 +44,10 @@ async fn login_zju_command(
 }
 
 #[tauri::command]
-async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Value, String> {
+async fn fetch_scholar_data(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Value, String> {
     let (transcript_r, major_r, exams_r, practice_r) = tokio::join!(
         zdbk::get_transcript(&state),
         zdbk::get_major_grades(&state),
@@ -43,7 +55,14 @@ async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Va
         zdbk::get_practice_scores(&state),
     );
 
-    let transcript = transcript_r.unwrap_or_default();
+    if let Err(err) = transcript_r {
+        if let Some(cached) = cache_read_envelope(&app, "cache_scholar.json") {
+            return Ok(cached);
+        }
+        return Err(err);
+    }
+
+    let transcript_raw = transcript_r.unwrap_or_default();
     let major_grades = major_r.unwrap_or_default();
     let exams = exams_r.unwrap_or_default();
     let practice = practice_r.unwrap_or(zdbk::PracticeScores {
@@ -52,242 +71,196 @@ async fn fetch_scholar_data(state: tauri::State<'_, Arc<AppState>>) -> Result<Va
         pt4: 0.0,
     });
 
-    let (five_point, four_point, hundred_point, total_credits) = calculate_gpa(&transcript);
-    let (major_gpa, major_credits) = calculate_major_gpa(&major_grades);
+    let processed_grades = transcript_raw.iter().map(enrich_grade).collect::<Vec<_>>();
 
-    // Build majorCourseIds set - collect xkkh from major_grades
-    let major_course_ids: Vec<String> = major_grades
-        .iter()
-        .filter_map(|g| {
-            g.get("xkkh")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        })
-        .collect();
+    let major_course_ids = collect_major_course_ids(&major_grades);
+    let major_course_set = major_course_ids.iter().cloned().collect::<HashSet<_>>();
 
-    // Group transcript by semester (xnm = academic year, xqm = term)
-    // And enrich each grade with computed GPA fields the frontend template expects
-    let mut semester_map: std::collections::BTreeMap<String, Vec<Value>> =
-        std::collections::BTreeMap::new();
-    for grade in &transcript {
-        // xnm and xqm might be numbers instead of purely strings in the ZJU API
-        let xnm = grade
-            .get("xnm")
-            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
-            .unwrap_or_else(|| "未知".to_string());
-            
-        let xqm = grade
-            .get("xqm")
-            .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
-            .unwrap_or_else(|| "?".to_string());
-            
-        let term_name = match xqm.as_str() {
-            "1" => format!("{}-{} 秋", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
-            "2" => format!("{}-{} 冬", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
-            "3" => format!("{}-{} 秋冬", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
-            "4" => format!("{}-{} 春", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
-            "8" => format!("{}-{} 夏", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
-            "12" => format!("{}-{} 春夏", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
-            "16" => format!("{}-{} 短学期", xnm, xnm.parse::<u32>().unwrap_or(0) + 1),
-            _ => format!(
-                "{}-{} 第{}学期",
-                xnm,
-                xnm.parse::<u32>().unwrap_or(0) + 1,
-                xqm
-            ),
-        };
+    let overall_first = compute_gpa_by_policy(&processed_grades, &major_course_set, RetakePolicy::First);
+    let overall_highest =
+        compute_gpa_by_policy(&processed_grades, &major_course_set, RetakePolicy::Highest);
 
-        // Extract credit (xf field from API)
-        let credit = grade
-            .get("xf")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<f64>().ok())
-            .or_else(|| grade.get("xf").and_then(|v| v.as_f64()))
-            .unwrap_or(0.0);
-
-        // Parse grade string into numeric score
-        let cj_raw = grade
-            .get("cj")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim();
-        let hundred = parse_score(cj_raw);
-        let five = to5(hundred);
-        let four = to4(hundred);
-        let legacy = to4_legacy(five);
-
-        // Build enriched grade object
-        let mut enriched = grade.clone();
-        if let Some(obj) = enriched.as_object_mut() {
-            obj.insert("credit".to_string(), serde_json::json!(credit));
-            obj.insert("hundredPoint".to_string(), serde_json::json!(hundred));
-            obj.insert("fivePoint".to_string(), serde_json::json!(five));
-            obj.insert("fourPoint".to_string(), serde_json::json!(four));
-            obj.insert("fourPointLegacy".to_string(), serde_json::json!(legacy));
-        }
-
-        semester_map.entry(term_name).or_default().push(enriched);
+    let mut semesters_map: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for grade in processed_grades.iter() {
+        let sem_name = extract_semester_name(grade).unwrap_or_else(|| "其他/认定".to_string());
+        semesters_map
+            .entry(sem_name)
+            .or_default()
+            .push(grade.clone());
     }
 
-    // Convert to array ordered by semester (oldest first)
-    let semesters: Vec<Value> = semester_map
+    let semesters = semesters_map
         .into_iter()
         .map(|(name, grades)| {
-            serde_json::json!({
+            let sem_first = compute_gpa_by_policy(&grades, &major_course_set, RetakePolicy::First);
+            let sem_highest =
+                compute_gpa_by_policy(&grades, &major_course_set, RetakePolicy::Highest);
+            json!({
                 "name": name,
                 "grades": grades,
-                "gpaArr": []  // frontend computes via fallback
+                "gpaByPolicy": {
+                    "first": sem_first,
+                    "highest": sem_highest,
+                },
+                "gpa": [
+                    sem_first.five_point,
+                    sem_first.four_point,
+                    sem_first.four_point_legacy,
+                    sem_first.hundred_point,
+                ],
+                "credits": sem_first.total_credits,
             })
         })
-        .collect();
+        .collect::<Vec<_>>();
 
-    Ok(serde_json::json!({
-        "gpa": {
-            "fivePoint": five_point,
-            "fourPoint": four_point,
-            "hundredPoint": hundred_point,
-            "totalCredits": total_credits,
-            "majorGpa": major_gpa,
-            "majorCredits": major_credits,
+    let payload = json!({
+        "gpa": overall_first,
+        "gpaByPolicy": {
+            "first": overall_first,
+            "highest": overall_highest,
         },
-        "transcript": transcript,
+        "transcript": processed_grades,
         "majorGrades": major_grades,
         "majorCourseIds": major_course_ids,
-        "semesters": semesters,
         "exams": exams,
-        "practice": { "pt2": practice.pt2, "pt3": practice.pt3, "pt4": practice.pt4 },
-    }))
+        "practice": {
+            "pt2": practice.pt2,
+            "pt3": practice.pt3,
+            "pt4": practice.pt4,
+        },
+        "semesters": semesters,
+    });
+
+    let env = envelope(payload, "network");
+    cache_write_envelope(&app, "cache_scholar.json", &env);
+    Ok(env)
 }
 
 #[tauri::command]
 async fn fetch_timetable(
-    state: tauri::State<'_, Arc<AppState>>,
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
     year: String,
     semester: String,
-) -> Result<Vec<Value>, String> {
-    zdbk::get_timetable(&state, &year, &semester).await
+) -> Result<Value, String> {
+    let cache_name = format!("cache_timetable_{}_{}.json", year, semester);
+    match zdbk::get_timetable(&state, &year, &semester).await {
+        Ok(arr) => {
+            let env = envelope(
+                json!({
+                    "timetable": arr,
+                    "year": year,
+                    "semester": semester,
+                }),
+                "network",
+            );
+            cache_write_envelope(&app, &cache_name, &env);
+            Ok(env)
+        }
+        Err(e) => {
+            if let Some(cached) = cache_read_envelope(&app, &cache_name) {
+                return Ok(cached);
+            }
+            Err(e)
+        }
+    }
 }
 
 #[tauri::command]
-async fn fetch_todos(state: tauri::State<'_, Arc<AppState>>) -> Result<Value, String> {
-    courses::get_todos(&state).await
-}
-
-fn calculate_gpa(grades: &[Value]) -> (f64, f64, f64, f64) {
-    let mut tc = 0.0_f64;
-    let mut w5 = 0.0_f64;
-    let mut w4 = 0.0_f64;
-    let mut wh = 0.0_f64;
-    for g in grades {
-        let c = g
-            .get("xf")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<f64>().ok())
-            .or_else(|| g.get("xf").and_then(|v| v.as_f64()))
-            .unwrap_or(0.0);
-        let s = parse_score(g.get("cj").and_then(|v| v.as_str()).unwrap_or(""));
-        if s > 0.0 && c > 0.0 {
-            tc += c;
-            wh += c * s;
-            w5 += c * to5(s);
-            w4 += c * to4(s);
+async fn fetch_todos(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<Value, String> {
+    match courses::get_todos(&state).await {
+        Ok(data) => {
+            let env = envelope(data, "network");
+            cache_write_envelope(&app, "cache_todos.json", &env);
+            Ok(env)
+        }
+        Err(e) => {
+            if let Some(cached) = cache_read_envelope(&app, "cache_todos.json") {
+                return Ok(cached);
+            }
+            Err(e)
         }
     }
-    if tc == 0.0 {
-        (0.0, 0.0, 0.0, 0.0)
-    } else {
-        (w5 / tc, w4 / tc, wh / tc, tc)
-    }
 }
 
-fn calculate_major_gpa(grades: &[Value]) -> (f64, f64) {
-    let mut tc = 0.0_f64;
-    let mut w = 0.0_f64;
-    for g in grades {
-        let c = g
-            .get("xf")
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GpaPreviewInput {
+    grades: Vec<Value>,
+    selected_ids: Option<Vec<String>>,
+    simulated_scores: Option<HashMap<String, f64>>,
+    retake_policy: Option<String>,
+    major_course_ids: Option<Vec<String>>,
+}
+
+#[tauri::command]
+fn calculate_gpa_preview(input: GpaPreviewInput) -> Result<Value, String> {
+    let selected_set = input
+        .selected_ids
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<HashSet<_>>();
+    let has_selection = !selected_set.is_empty();
+
+    let simulated = input.simulated_scores.unwrap_or_default();
+    let major_set = input
+        .major_course_ids
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<HashSet<_>>();
+
+    let mut grades = Vec::new();
+    for raw in input.grades.iter() {
+        let mut grade = enrich_grade(raw);
+        let xkkh = grade
+            .get("xkkh")
             .and_then(|v| v.as_str())
-            .and_then(|s| s.parse::<f64>().ok())
-            .or_else(|| g.get("xf").and_then(|v| v.as_f64()))
-            .unwrap_or(0.0);
-        let s = parse_score(g.get("cj").and_then(|v| v.as_str()).unwrap_or(""));
-        if s > 0.0 && c > 0.0 {
-            tc += c;
-            w += c * to4(s);
+            .unwrap_or_default()
+            .to_string();
+
+        if has_selection && !selected_set.contains(&xkkh) {
+            continue;
+        }
+
+        let cj = grade
+            .get("cj")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        if ["待录", "缓考", "无效"].contains(&cj.as_str()) {
+            if let Some(score) = simulated.get(&xkkh) {
+                apply_simulated_score(&mut grade, *score);
+            }
+        }
+
+        grades.push(grade);
+    }
+
+    let policy = RetakePolicy::from_str(input.retake_policy.as_deref().unwrap_or("first"));
+    let summary = compute_gpa_by_policy(&grades, &major_set, policy);
+    Ok(json!(summary))
+}
+
+fn collect_major_course_ids(major_grades: &[Value]) -> Vec<String> {
+    let mut ids = Vec::new();
+    let mut seen = HashSet::new();
+
+    for grade in major_grades {
+        if let Some(xkkh) = grade.get("xkkh").and_then(|v| v.as_str()) {
+            if seen.insert(xkkh.to_string()) {
+                ids.push(xkkh.to_string());
+            }
+        }
+        if let Some(kcdm) = grade.get("kcdm").and_then(|v| v.as_str()) {
+            if seen.insert(kcdm.to_string()) {
+                ids.push(kcdm.to_string());
+            }
         }
     }
-    if tc == 0.0 {
-        (0.0, 0.0)
-    } else {
-        (w / tc, tc)
-    }
-}
 
-fn parse_score(s: &str) -> f64 {
-    s.parse::<f64>().unwrap_or_else(|_| match s {
-        "优秀" => 95.0,
-        "良好" => 85.0,
-        "中等" => 75.0,
-        "及格" => 65.0,
-        "合格" => 75.0,
-        _ => 0.0,
-    })
-}
-
-fn to5(s: f64) -> f64 {
-    if s >= 95.0 {
-        5.0
-    } else if s >= 92.0 {
-        4.8
-    } else if s >= 89.0 {
-        4.5
-    } else if s >= 86.0 {
-        4.2
-    } else if s >= 83.0 {
-        3.9
-    } else if s >= 80.0 {
-        3.6
-    } else if s >= 77.0 {
-        3.3
-    } else if s >= 74.0 {
-        3.0
-    } else if s >= 71.0 {
-        2.7
-    } else if s >= 68.0 {
-        2.4
-    } else if s >= 65.0 {
-        2.1
-    } else if s >= 62.0 {
-        1.8
-    } else if s >= 60.0 {
-        1.5
-    } else {
-        0.0
-    }
-}
-
-fn to4(s: f64) -> f64 {
-    if s >= 85.0 {
-        (s - 60.0) * 0.1
-    } else if s >= 60.0 {
-        (s - 60.0) * 0.06 + 1.5
-    } else {
-        0.0
-    }
-}
-
-fn to4_legacy(five: f64) -> f64 {
-    if five >= 4.0 {
-        4.0
-    } else if five >= 3.0 {
-        3.0
-    } else if five >= 2.0 {
-        2.0
-    } else if five >= 1.5 {
-        1.5
-    } else {
-        0.0
-    }
+    ids
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -323,6 +296,7 @@ pub fn run() {
             fetch_scholar_data,
             fetch_timetable,
             fetch_todos,
+            calculate_gpa_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

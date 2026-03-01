@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>浙大本科生时间管理 & 学业仪表盘</strong><br/>
-  <sub>A native macOS desktop app built for ZJU undergrads.</sub>
+  <sub>A Tauri app for macOS / Android / iOS built for ZJU undergrads.</sub>
 </p>
 
 <p align="center">
@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/Rust-2024-DEA584?style=flat-square&logo=rust&logoColor=white" />
   <img src="https://img.shields.io/badge/TypeScript-5.6-3178C6?style=flat-square&logo=typescript&logoColor=white" />
   <img src="https://img.shields.io/badge/ECharts-5-AA344D?style=flat-square&logo=apache-echarts&logoColor=white" />
-  <img src="https://img.shields.io/badge/Platform-macOS_(Apple_Silicon)-000?style=flat-square&logo=apple&logoColor=white" />
+  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Android%20%7C%20iOS-111?style=flat-square" />
 </p>
 
 ---
@@ -76,11 +76,32 @@ npm run tauri dev
 ### Build
 
 ```bash
-# 构建 macOS .dmg 安装包
-npm run tauri build
+# 构建 macOS 包
+npm run release:mac
+
+# 构建 Android 包 (apk + aab)
+npm run release:android
+
+# 构建 iOS 包
+npm run release:ios
 ```
 
-产物位于 `src-tauri/target/release/bundle/dmg/`
+统一三端构建：`npm run release:all`
+
+版本同步：`npm run release:sync-version`
+
+## ✅ Quality Gates
+
+```bash
+# 全量质量检查（本地/CI一致）
+npm run check
+```
+
+门禁策略与提交规范文档见：
+
+- `docs/engineering/conventions.md`
+- `docs/engineering/quality-gates.md`
+- `docs/engineering/release.md`
 
 ## ⚙️ Configuration
 

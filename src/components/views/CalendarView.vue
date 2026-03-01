@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRange, Download } from "lucide-vue-next";
+import { fetchScholarData, fetchTimetable as fetchTimetableApi, fetchTodos } from "../../services/api";
 
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 // ZJU 标准 12 节课时间表 (每节独立)
@@ -51,39 +51,18 @@ function toggleHideCourseInfo() {
 }
 
 // Semester tabs
-interface SemesterTab {
-  label: string;
-  year: string;  // xnm e.g. "2025"
-  sem: string;   // xqm e.g. "12" or "3"
-  isCurrent: boolean;
+
+function formatSemesterName(name: string) {
+  if (!name || !name.includes('-')) return name;
+  const parts = name.split('-');
+  if (parts.length < 3) return name;
+  const startYear = parts[0].slice(-2);
+  const endYear = parts[1].slice(-2);
+  const semType = parts[2] === '1' ? '秋冬' : (parts[2] === '2' ? '春夏' : '短');
+  return `${startYear}-${endYear} ${semType}`;
 }
 
-function buildSemesterTabs(): SemesterTab[] {
-  const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
-  let curYear: number, curSem: string;
-  if (month >= 2 && month <= 8) {
-    curYear = year - 1;
-    curSem = '12';
-  } else {
-    curYear = month === 1 ? year - 1 : year;
-    curSem = '3';
-  }
-  const tabs: SemesterTab[] = [];
-  // Generate 4 semesters: current + 3 previous
-  let y = curYear, s = curSem;
-  for (let i = 0; i < 4; i++) {
-    const label = `${String(y).slice(-2)}-${String(Number(y) + 1).slice(-2)}${s === '12' ? '春夏' : '秋冬'}`;
-    tabs.push({ label, year: y.toString(), sem: s, isCurrent: i === 0 });
-    // Go to previous semester
-    if (s === '12') { s = '3'; y -= 1; }
-    else { s = '12'; }
-  }
-  return tabs;
-}
-
-const semesterTabs = ref(buildSemesterTabs());
+const semesterTabs = ref<any[]>([]);
 const activeSemIdx = ref(0);
 
 function switchSemester(idx: number) {
@@ -372,8 +351,9 @@ const selectedDayData = computed(() => {
   
   // 3. Todos
   const todos = allTodos.value.filter(t => {
-     if(!t.expires) return false;
-     const tMs = new Date(t.expires).getTime();
+     const expires = t.expires || t.end_time;
+     if(!expires) return false;
+     const tMs = new Date(expires).getTime();
      return tMs >= dayTimeStart && tMs <= dayTimeEnd;
   });
 
@@ -382,10 +362,10 @@ const selectedDayData = computed(() => {
 
 async function fetchExtraData() {
     try {
-        const tr: any = await invoke("fetch_todos", { sync: false });
-        allTodos.value = tr.data || [];
-        const sr: any = await invoke("fetch_scholar_data", { sync: false });
-        allExams.value = sr.exams || [];
+        const tr = await fetchTodos();
+        allTodos.value = tr.data.todo_list || [];
+        const sr = await fetchScholarData();
+        allExams.value = sr.data.exams || [];
     } catch(e) {}
 }
 
@@ -409,8 +389,32 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
       }
     }
 
-    const response: any = await invoke("fetch_timetable", { year: zjuYearStr, semester: zjuSemStr });
-    const data: any[] = Array.isArray(response) ? response : (response.timetable || response.kbList || []);
+    const response = await fetchTimetableApi({ year: zjuYearStr, semester: zjuSemStr });
+    
+    // Auto-update metadata and class hours
+    fetchScholarData().then((sr) => {
+      const data: any = sr.data;
+      if (data.semesters && data.semesters.length > 0) {
+         const newTabs = data.semesters.map((s: any) => {
+            const label = formatSemesterName(s.name);
+            const academicYear = s.name.substring(0, 4);
+            const semCode = s.name.split('-').pop();
+            // Unified mapping: 1 (Autumn) -> xqm 2? Or follow xqm=3?
+            // Let's use robust mapping: 秋冬(1) -> 3, 春夏(2) -> 12
+            let xqm = "3";
+            if (semCode === '1') xqm = "3";
+            else if (semCode === '2') xqm = "12";
+            return { label, year: academicYear, sem: xqm, originalCode: semCode };
+         });
+         semesterTabs.value = newTabs;
+         
+         // Select best matching tab
+         const foundIdx = newTabs.findIndex((t: any) => t.year === zjuYearStr && t.sem === zjuSemStr);
+         if (foundIdx !== -1) activeSemIdx.value = foundIdx;
+      }
+    });
+
+    const data: any[] = response.data.timetable || [];
 
     if (response._meta && response._meta.source === "cache") {
       isOffline.value = true;
@@ -670,8 +674,11 @@ onMounted(() => {
           </span>
           <button class="pill-btn" @click="currentWeek = currentWeek + 1">›</button>
         </div>
-        <button class="action-icon-btn primary-icon-btn" :class="{active: showMonthNav}" @click="showMonthNav = !showMonthNav" title="月历导航">
+        <button class="action-icon-btn primary-icon-btn" @click="currentWeek = getRealCurrentWeek()" title="回到本周">
           <CalendarDays :size="18"/>
+        </button>
+        <button class="action-icon-btn" :class="{active: showMonthNav}" @click="showMonthNav = !showMonthNav" title="月历导航">
+          <CalendarRange :size="18"/>
         </button>
         <button class="action-icon-btn" @click="exportToICS" title="导出日历(ics)">
           <Download :size="18"/>
@@ -692,8 +699,8 @@ onMounted(() => {
           {{ tab.label }}
         </button>
       </div>
-      <div class="class-hours-badge glass-panel">
-        <span class="badge-title">{{ semesterTabs[activeSemIdx]?.label.includes('春夏') ? '春/夏' : '秋/冬' }}学期课时</span>
+      <div class="class-hours-badge glass-panel" v-if="semesterTabs.length">
+        <span class="badge-title">{{ (semesterTabs[activeSemIdx]?.label || '').includes('2') || (semesterTabs[activeSemIdx]?.label || '').includes('春夏') ? '春/夏' : '秋/冬' }}学期课时</span>
         <span class="badge-value">{{ classHoursStats.perTwoWeeks }} <span class="badge-unit">节 / 两周</span></span>
       </div>
     </div>
@@ -963,6 +970,82 @@ onMounted(() => {
   border-radius: 50%;
   transition: all .2s;
 }
+
+.calendar-meta-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 2rem;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.semester-tabs {
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.semester-tab {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 6px 14px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.semester-tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+.semester-tab.active {
+  background: #38bdf8;
+  color: white;
+  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
+}
+
+:root.light-theme .semester-tabs {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+:root.light-theme .semester-tab {
+  color: #64748b;
+}
+:root.light-theme .semester-tab:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+:root.light-theme .semester-tab.active {
+  background: #0284c7;
+  color: white;
+}
+
+.class-hours-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 16px;
+  border-radius: 16px;
+  flex-shrink: 0;
+}
+.badge-title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94a3b8;
+}
+.badge-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #38bdf8;
+}
 .pill-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
 .pill-label {
   padding: 0 12px;
@@ -1018,16 +1101,45 @@ onMounted(() => {
   max-width: 350px;
   box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.4);
 }
+.week-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.week-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.05);
+}
+:root.light-theme .week-btn {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #1e293b;
+}
+
 .btn-primary {
+  width: 100%;
+  padding: 12px;
+  margin-top: 1rem;
   background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%);
   color: #fff;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: none;
   border-radius: 12px;
   cursor: pointer;
   font-weight: 600;
-  transition: transform 0.2s;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+  transition: all 0.2s;
 }
-.btn-primary:active { transform: translateY(2px); }
+.btn-primary:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+.btn-primary:active { transform: translateY(1px); }
 
 /* Course Detail Modal */
 .detail-rows {

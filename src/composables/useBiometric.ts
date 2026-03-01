@@ -25,22 +25,29 @@ export function useBiometric() {
             // If the device doesn't support biometrics, fallback to password
             if (!available) return 'fallback';
 
-            await tauriAuthenticate(`请验证以切换至账户: ${displayName}`, {
+            await tauriAuthenticate(`验证身份以切换账户: ${displayName}`, {
                 cancelTitle: '取消',
                 fallbackTitle: '使用密码',
             });
             return 'success';
         } catch (err: any) {
             console.warn("Biometric auth error:", err);
-            // On desktop or when user clicks "Use Password", fall back to manual password
             const eStr = String(err).toLowerCase();
+
+            // Check for specific cancellation or failure codes
+            if (eStr.includes('canceled') || eStr.includes('usercancel') || eStr.includes('cancel')) {
+                return 'failed';
+            }
+            if (eStr.includes('locked') || eStr.includes('too many attempts')) {
+                return 'failed'; // Or throw a specific error
+            }
+
+            // For other cases like 'not supported' or 'fallback requested', we return fallback
             if (eStr.includes('fallback') || eStr.includes('not interactive') || eStr.includes('not supported')) {
                 return 'fallback';
             }
-            if (err && (err.errorCode === 'userFallback' || err.errorCode === 'biometryNotAvailable' || err.errorCode === 'notInteractive')) {
-                return 'fallback';
-            }
-            return 'fallback'; // Defaulting to fallback is safer so users aren't locked out of accounts
+
+            return 'fallback';
         }
     }
 

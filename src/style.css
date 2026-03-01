@@ -1,3 +1,5 @@
+@import "./styles/tokens.css";
+
 /* ============================================
    CELECHRON DESIGN TOKEN SYSTEM
    Strategy: Default = LIGHT THEME
@@ -15,21 +17,21 @@
   -moz-osx-font-smoothing: grayscale;
 
   /* ── App Background ── */
-  --bg-main: #f0f4f8;
+  --bg-main: var(--color-bg-main);
   /* soft slate-100 background */
 
   /* ── Text ── */
-  --text-main: #0f172a;
+  --text-main: var(--color-text-main);
   /* slate-900 — near-black, max contrast */
-  --text-muted: #64748b;
+  --text-muted: var(--color-text-muted);
   /* slate-500 — readable subdued */
-  --text-inverse: #ffffff;
+  --text-inverse: var(--color-text-inverse);
 
   /* ── Cards / Panels ── */
-  --card-bg: rgba(255, 255, 255, 0.80);
-  --card-border: rgba(0, 0, 0, 0.08);
-  --panel-bg: rgba(255, 255, 255, 0.65);
-  --panel-border: rgba(0, 0, 0, 0.06);
+  --card-bg: var(--color-surface-card);
+  --card-border: var(--color-border-strong);
+  --panel-bg: var(--color-surface-panel);
+  --panel-border: var(--color-border-soft);
 
   /* ── Navigation ── */
   --nav-bg: rgba(255, 255, 255, 0.80);
@@ -41,13 +43,13 @@
   --nav-shadow: rgba(0, 0, 0, 0.06);
 
   /* ── Accent ── */
-  --accent-blue: #0284c7;
+  --accent-blue: var(--color-accent-primary);
   /* sky-600 */
-  --accent-blue-light: #e0f2fe;
+  --accent-blue-light: var(--color-accent-primary-soft);
   /* sky-100 */
-  --accent-green: #16a34a;
-  --accent-red: #dc2626;
-  --accent-amber: #d97706;
+  --accent-green: var(--color-accent-success);
+  --accent-red: var(--color-accent-danger);
+  --accent-amber: var(--color-accent-warning);
 
   /* ── Form Inputs ── */
   --input-bg: rgba(0, 0, 0, 0.04);

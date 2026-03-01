@@ -1,13 +1,24 @@
 {
   "name": "tauri-temp",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "build:web": "vite build",
+    "build": "npm run typecheck && npm run build:web",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "cargo:check": "cd src-tauri && cargo check --lib && cargo check --bin celechron",
+    "check:colors": "node scripts/check-colors.mjs",
+    "check": "npm run build && npm run check:colors && npm run cargo:check",
+    "release:sync-version": "node scripts/sync-version.mjs",
+    "release:mac": "npm run release:sync-version && npm run tauri build",
+    "release:android": "npm run release:sync-version && npm run tauri android build --apk --aab",
+    "release:ios": "npm run release:sync-version && npm run tauri ios build",
+    "release:all": "npm run release:mac && npm run release:android && npm run release:ios",
+    "prepare": "husky"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -23,8 +34,11 @@
     "vue-echarts": "^8.0.1"
   },
   "devDependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
     "@tauri-apps/cli": "^2",
     "@vitejs/plugin-vue": "^5.2.1",
+    "husky": "^9.1.7",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vue-tsc": "^2.1.10"

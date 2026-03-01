@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import PomodoroWidget from "../PomodoroWidget.vue";
+import { fetchTodos } from "../../services/api";
 
 const isLoading = ref(true);
 const isOffline = ref(false);
@@ -32,11 +32,12 @@ function formatDaysLeft(days: number) {
 async function fetchTasks() {
   try {
     isLoading.value = true;
-    const response: any = await invoke("fetch_todos");
+    const env = await fetchTodos();
+    const response: any = env.data;
     
-    if (response._meta && response._meta.source === "cache") {
+    if (env._meta && env._meta.source === "cache") {
       isOffline.value = true;
-      offlineTime.value = new Date(response._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false });
+      offlineTime.value = new Date(env._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false });
     } else {
       isOffline.value = false;
     }

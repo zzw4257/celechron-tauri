@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { invoke } from "@tauri-apps/api/core";
 import { Search, Calendar, BookOpen, AlertCircle } from 'lucide-vue-next';
+import { fetchScholarData, fetchTodos } from '../services/api';
+
+function formatSemesterName(name: string) {
+  if (!name || !name.includes('-')) return name;
+  const parts = name.split('-');
+  if (parts.length < 3) return name;
+  const startYear = parts[0].slice(-2);
+  const endYear = parts[1].slice(-2);
+  const semType = parts[2] === '1' ? '秋冬' : (parts[2] === '2' ? '春夏' : '短');
+  return `${startYear}-${endYear} ${semType}`;
+}
 
 const isVisible = ref(false);
 const searchQuery = ref('');
@@ -20,8 +30,10 @@ async function loadData() {
   
   isLoading.value = true;
   try {
-    const data: any = await invoke("fetch_scholar_data");
-    const todosData: any = await invoke("fetch_todos");
+    const scholarEnv = await fetchScholarData();
+    const todosEnv = await fetchTodos();
+    const data: any = scholarEnv.data;
+    const todosData: any = todosEnv.data;
 
     // 1. Flatten all semesters' courses
     const allC: any[] = [];
@@ -31,7 +43,7 @@ async function loadData() {
           type: 'course',
           id: g.xkkh,
           title: g.kcmc,
-          subtitle: `教师: ${g.jsxm || '未知'} | 学分: ${g.xf} | 学期: ${sem.name}`,
+          subtitle: `教师: ${g.jsxm || '未知'} | 学分: ${g.xf} | 学期: ${formatSemesterName(sem.name)}`,
           score: g.cj,
           raw: g
         });
@@ -338,21 +350,23 @@ const getColor = (type: string) => {
 
 /* Light Mode Overrides */
 :global(.light-theme) .search-modal {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
 }
 :global(.light-theme) .search-header {
-  border-bottom-color: rgba(0, 0, 0, 0.08);
+  border-bottom-color: rgba(0, 0, 0, 0.05);
 }
 :global(.light-theme) .search-input { color: #1e293b; }
 :global(.light-theme) .search-input::placeholder { color: #94a3b8; }
-:global(.light-theme) .item-title { color: #334155; }
-:global(.light-theme) .item-subtitle { color: #64748b; }
+:global(.light-theme) .item-title { color: #0f172a; }
+:global(.light-theme) .item-subtitle { color: #475569; }
 :global(.light-theme) .no-results { color: #64748b; }
-:global(.light-theme) .result-item.selected { background: rgba(0, 0, 0, 0.05); }
+:global(.light-theme) .result-item.selected { background: rgba(0, 0, 0, 0.04); }
 :global(.light-theme) .esc-kbd { 
-  background: #f1f5f9; 
+  background: #f8fafc; 
   color: #64748b; 
-  border-color: #e2e8f0; 
+  border-color: #cbd5e1; 
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 </style>

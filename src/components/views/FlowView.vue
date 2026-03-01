@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import { LiquidGlass } from '@wxperia/liquid-glass-vue';
+import { fetchTimetable, fetchTodos } from "../../services/api";
 
 interface FlowItem {
   id: string;
@@ -38,8 +38,9 @@ async function loadFlow() {
     const todayMs = today.getTime();
     
     // 1. Fetch Todos
-    const todoRes: any = await invoke("fetch_todos");
-    if (todoRes._meta && todoRes._meta.source === "cache") isOffline.value = true;
+    const todoEnv = await fetchTodos();
+    const todoRes: any = todoEnv.data;
+    if (todoEnv._meta && todoEnv._meta.source === "cache") isOffline.value = true;
     
     const todos = todoRes.todo_list || [];
     todos.forEach((t: any) => {
@@ -78,8 +79,10 @@ async function loadFlow() {
       zjuSemStr = "3"; // 秋冬学期 xqm=3
     }
 
-    // 2. Fetch Timetable — backend returns Vec<Value> directly (array)
-    const timetable: any[] = await invoke("fetch_timetable", { year: zjuYearStr, semester: zjuSemStr });
+    // 2. Fetch Timetable
+    const timetableEnv = await fetchTimetable({ year: zjuYearStr, semester: zjuSemStr });
+    const timetable: any[] = timetableEnv.data.timetable || [];
+    if (timetableEnv._meta?.source === 'cache') isOffline.value = true;
     
     const startDateMs = parseInt(localStorage.getItem('semester_start_ms') || '0');
     let colorIdx = 0;

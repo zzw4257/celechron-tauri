@@ -1,0 +1,31 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches: ["main", "master"]
+
+jobs:
+  quality:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync versions
+        run: npm run release:sync-version
+
+      - name: Run quality gates
+        run: npm run check

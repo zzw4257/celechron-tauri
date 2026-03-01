@@ -1,18 +1,36 @@
 <script setup lang="ts">
-import { ref, inject } from "vue";
+import { ref, inject, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { LogOut, RefreshCw, Palette, SunMoon, Layers, UserPlus } from "lucide-vue-next";
+import { LogOut, RefreshCw, Palette, SunMoon, Layers, UserPlus, LayoutTemplate } from "lucide-vue-next";
 import { useTheme, type ThemeType } from "../../composables/useTheme";
 import { useAccounts, type SavedAccount } from "../../composables/useAccounts";
 import { useBiometric } from "../../composables/useBiometric";
+import { fetchScholarData, fetchTodos } from "../../services/api";
 
 const { currentTheme, THEMES, setTheme, isLightMode, toggleLightMode, glassEffect, setGlassEffect } = useTheme();
 const { accounts, addAccount, removeAccount, updateNickname, getPassword, accountDisplayName, isFull } = useAccounts();
-const { authenticate } = useBiometric();
+const { authenticate, isBiometricAvailable } = useBiometric();
+
+const useBiometricAuth = ref(localStorage.getItem('useBiometric') !== 'false');
+const biometricHardwareAvailable = ref(false);
+
+onMounted(async () => {
+  biometricHardwareAvailable.value = await isBiometricAvailable();
+});
+
+function toggleBiometricAuth() {
+  useBiometricAuth.value = !useBiometricAuth.value;
+  localStorage.setItem('useBiometric', useBiometricAuth.value.toString());
+}
 
 // Academic Settings
 const hideGpa = ref(localStorage.getItem('hideGpa') === 'true');
-const retakePolicy = ref(localStorage.getItem('retakePolicy') || 'first');
+const initialPolicy = localStorage.getItem('retakePolicy');
+const retakePolicy = ref(initialPolicy === 'best' ? 'highest' : (initialPolicy || 'first'));
+
+if (initialPolicy === 'best') {
+  localStorage.setItem('retakePolicy', 'highest');
+}
 
 function toggleHideGpa() {
   hideGpa.value = !hideGpa.value;
@@ -20,8 +38,16 @@ function toggleHideGpa() {
 }
 
 function setRetakePolicy(pol: string) {
-  retakePolicy.value = pol;
-  localStorage.setItem('retakePolicy', pol);
+  const normalized = pol === 'best' ? 'highest' : pol;
+  if (retakePolicy.value === normalized) return;
+
+  retakePolicy.value = normalized;
+  localStorage.setItem('retakePolicy', normalized);
+  // Notify other views to re-read policy and refresh display.
+  window.dispatchEvent(new CustomEvent('celechron-retake-policy-changed', { detail: normalized }));
+
+  // Warm scholar cache with the new policy for immediate consistency.
+  fetchScholarData().catch(() => {});
 }
 
 // Injected from App.vue for clean logout/switch
@@ -44,8 +70,8 @@ async function handleRefresh() {
   if (isRefreshing.value) return;
   isRefreshing.value = true;
   try {
-    await invoke("fetch_scholar_data");
-    await invoke("fetch_todos");
+    await fetchScholarData();
+    await fetchTodos();
     await new Promise(r => setTimeout(r, 800));
   } catch (e) {
     console.error(e);
@@ -62,34 +88,51 @@ async function switchAccount(acc: SavedAccount) {
   if (isSwitching.value) return;
   
   const displayName = accountDisplayName(acc);
-  switchStatus.value = `等待验证指纹/面容...`;
-  
-  await new Promise(r => setTimeout(r, 50));
-  
-  const authStatus = await authenticate(displayName);
-  
-  if (authStatus === 'failed') {
-    switchStatus.value = "系统生物验证取消或失败";
-    setTimeout(() => { switchStatus.value = ""; }, 3000);
-    return;
+  if (useBiometricAuth.value && biometricHardwareAvailable.value) {
+    switchStatus.value = `等待验证指纹/面容...`;
+    await new Promise(r => setTimeout(r, 50));
+    const authStatus = await authenticate(displayName);
+    
+    if (authStatus === 'failed') {
+      switchStatus.value = "身份验证被取消";
+      setTimeout(() => { if(switchStatus.value === "身份验证被取消") switchStatus.value = ""; }, 3000);
+      return;
+    }
+
+    if (authStatus === 'success') {
+       // Success!
+    } else {
+       // Fallback
+       const inputPwd = window.prompt(`需要验证身份。请输入账户 ${displayName} 的密码：`);
+       if (inputPwd === null) {
+         switchStatus.value = "已取消身份验证";
+         setTimeout(() => { switchStatus.value = ""; }, 3000);
+         return;
+       }
+       const realPwd = await getPassword(acc);
+       if (inputPwd !== realPwd) {
+         switchStatus.value = "密码错误，验证失败";
+         setTimeout(() => { switchStatus.value = ""; }, 3000);
+         return;
+       }
+    }
+  } else {
+    // If biometric is disabled by user or hardware, ask for password directly for security
+    const inputPwd = window.prompt(`安全提示：正在切换账户。请输入账户 ${displayName} 的密码：`);
+    if (inputPwd === null) {
+      switchStatus.value = "已取消切换";
+      setTimeout(() => { switchStatus.value = ""; }, 3000);
+      return;
+    }
+    const realPwd = await getPassword(acc);
+    if (inputPwd !== realPwd) {
+      switchStatus.value = "密码错误";
+      setTimeout(() => { switchStatus.value = ""; }, 3000);
+      return;
+    }
   }
 
   const realPwd = await getPassword(acc);
-
-  if (authStatus === 'fallback') {
-    // If biometric is unavailable or errored out, ask for password to verify
-    const inputPwd = window.prompt(`需要验证身份。请输入账户 ${displayName} 的密码：`);
-    if (inputPwd === null) {
-      switchStatus.value = "已取消身份验证";
-      setTimeout(() => { switchStatus.value = ""; }, 3000);
-      return;
-    }
-    if (inputPwd !== realPwd) {
-      switchStatus.value = "密码错误，验证失败";
-      setTimeout(() => { switchStatus.value = ""; }, 3000);
-      return;
-    }
-  }
 
   isSwitching.value = true;
   switchStatus.value = `正在切换至 ${displayName}...`;
@@ -258,6 +301,26 @@ function deleteAccount(id: string) {
                 <span class="setting-name">隐藏绩点</span>
               </div>
               <div class="toggle-switch" :class="{ active: hideGpa }" @click="toggleHideGpa">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Security Settings -->
+      <section class="settings-group">
+        <h3 class="group-title">安全与隐私</h3>
+        <div class="settings-card">
+          <div class="setting-item" @click="toggleBiometricAuth" style="cursor: default;">
+            <div class="setting-info" style="align-items: center; justify-content: space-between; width: 100%;">
+              <div class="setting-text">
+                <span class="setting-name">生物识别验证</span>
+                <span class="setting-desc">
+                  {{ biometricHardwareAvailable ? '切换账户时使用指纹或面容识别' : '当前设备硬件不支持生物识别' }}
+                </span>
+              </div>
+              <div class="toggle-switch" :class="{ active: useBiometricAuth && biometricHardwareAvailable, disabled: !biometricHardwareAvailable }" @click.stop="biometricHardwareAvailable && toggleBiometricAuth()">
                 <div class="toggle-knob"></div>
               </div>
             </div>
@@ -656,15 +719,21 @@ function deleteAccount(id: string) {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 14px;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 14px;
-  transition: background 0.2s;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  transition: all 0.2s;
+}
+.account-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
 }
 :global(.light-theme) .account-row {
-  background: #f8fafc;
-  border-color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 .acc-info {
   display: flex;
@@ -731,18 +800,18 @@ function deleteAccount(id: string) {
 :global(.light-theme) .btn-delete { color: #dc2626; }
 .no-accounts {
   text-align: center;
-  padding: 24px;
+  padding: 32px 24px;
   font-size: 0.9rem;
   line-height: 1.5;
-  border-radius: 12px;
-  background: #0f172a;
-  border: 1px dashed #334155;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 2px dashed rgba(255, 255, 255, 0.1);
   color: #94a3b8;
 }
 :global(.light-theme) .no-accounts {
   color: #64748b;
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.1);
 }
 .switch-status {
   margin-top: 12px;

@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
+import { ref, computed, onMounted, watch } from "vue";
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
@@ -8,6 +7,7 @@ import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, TitleComponent, LegendComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
 import { useTheme } from "../../composables/useTheme";
+import { calculateGpaPreview, fetchScholarData, fetchTodos } from "../../services/api";
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, TitleComponent, LegendComponent]);
 
@@ -54,11 +54,45 @@ const offlineTime = ref("");
 
 const settingsKey = ref(0);
 const hideGpa = ref(localStorage.getItem('hideGpa') === 'true');
+const EMPTY_GPA = {
+  fivePoint: 0,
+  fourPoint: 0,
+  fourPointLegacy: 0,
+  hundredPoint: 0,
+  totalCredits: 0,
+  majorGpa: 0,
+  majorGpaLegacy: 0,
+  majorCredits: 0,
+};
+const gpaByPolicy = ref({
+  first: { ...EMPTY_GPA },
+  highest: { ...EMPTY_GPA },
+});
+
+function getRetakePolicy(): 'first' | 'highest' {
+  const policy = localStorage.getItem('retakePolicy');
+  if (policy === 'highest' || policy === 'best') return 'highest';
+  return 'first';
+}
+
+const activePolicy = computed(() => {
+  settingsKey.value;
+  return getRetakePolicy();
+});
 
 onMounted(() => {
   window.addEventListener('focus', () => {
     hideGpa.value = localStorage.getItem('hideGpa') === 'true';
     settingsKey.value++;
+    if (semestersList.value.length > 0) {
+      selectSemester(selectedSemesterIndex.value);
+    }
+  });
+  window.addEventListener('celechron-retake-policy-changed', () => {
+    settingsKey.value++;
+    if (semestersList.value.length > 0) {
+      selectSemester(selectedSemesterIndex.value);
+    }
   });
 });
 
@@ -78,7 +112,7 @@ const overallGpa = computed(() => {
 
   // Make it reactive to settings changes
   settingsKey.value;
-  const policy = localStorage.getItem('retakePolicy') || 'first';
+  const policy = getRetakePolicy();
   
   // Flatten all grades with their semester index to keep chronological order
   const allFlattened: {g: any, semIdx: number}[] = [];
@@ -133,6 +167,10 @@ const overallGpa = computed(() => {
       let earnsCredit = false;
       let countsForGpa = false;
 
+      const isLetterGrade = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D"].includes(cj);
+      const isLevelGrade = ["不及格", "F", "及格", "中等", "良好", "优秀"].includes(cj);
+      const isNumericGrade = !isNaN(parseFloat(cj));
+
       if (["待录", "缓考", "无效"].includes(cj)) {
         return;
       } else if (["不及格", "F"].includes(cj)) {
@@ -141,18 +179,22 @@ const overallGpa = computed(() => {
       } else if (["弃修"].includes(cj)) {
         earnsCredit = false;
         countsForGpa = false;
-      } else if (["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "合格", "免修", "免考"].includes(cj)) {
+      } else if (isLetterGrade) {
+        earnsCredit = true;
+        countsForGpa = true;
+      } else if (["合格", "免修", "免考"].includes(cj)) {
         earnsCredit = true;
         countsForGpa = false;
-      } else {
+      } else if (isNumericGrade) {
         let numericVal = parseFloat(cj);
-        if (!isNaN(numericVal) && numericVal < 60) {
-          earnsCredit = false;
-          countsForGpa = true;
-        } else {
-          earnsCredit = true;
-          countsForGpa = true;
-        }
+        earnsCredit = numericVal >= 60;
+        countsForGpa = true;
+      } else if (isLevelGrade) {
+        earnsCredit = cj !== "不及格";
+        countsForGpa = true;
+      } else {
+        earnsCredit = false;
+        countsForGpa = false;
       }
 
       if (credit > 0) {
@@ -187,15 +229,23 @@ const overallGpa = computed(() => {
   };
 });
 
+const displayGpa = computed(() => {
+  const policy = activePolicy.value;
+  const byPolicy = gpaByPolicy.value[policy] || gpaByPolicy.value.first;
+  // Fallback to legacy frontend-computed result only when backend payload is absent.
+  if (!byPolicy) return overallGpa.value;
+  return byPolicy;
+});
+
 const gradeItems = [
-  { label: "五分制", value: () => hideGpa.value ? '****' : overallGpa.value.fivePoint.toFixed(2), color: "#06b6d4" },
-  { label: "获得学分", value: () => overallGpa.value.totalCredits.toFixed(1), color: "#f97316" },
-  { label: "四分制(4.3)", value: () => hideGpa.value ? '****' : overallGpa.value.fourPoint.toFixed(2), color: "#22c55e" },
-  { label: "主修四分制(4.3)", value: () => hideGpa.value ? '****' : overallGpa.value.majorGpa.toFixed(2), color: "#ec4899" },
-  { label: "主修学分", value: () => overallGpa.value.majorCredits.toFixed(1), color: "#eab308" },
-  { label: "百分制", value: () => hideGpa.value ? '****' : overallGpa.value.hundredPoint.toFixed(2), color: "#a855f7" },
-  { label: "四分制(4.0)", value: () => hideGpa.value ? '****' : overallGpa.value.fourPointLegacy.toFixed(2), color: "#10b981" },
-  { label: "主修四分制(4.0)", value: () => hideGpa.value ? '****' : overallGpa.value.majorGpaLegacy.toFixed(2), color: "#f43f5e" },
+  { label: "五分制", value: () => hideGpa.value ? '****' : displayGpa.value.fivePoint.toFixed(2), color: "#06b6d4" },
+  { label: "获得学分", value: () => displayGpa.value.totalCredits.toFixed(1), color: "#f97316" },
+  { label: "四分制(4.3)", value: () => hideGpa.value ? '****' : displayGpa.value.fourPoint.toFixed(2), color: "#22c55e" },
+  { label: "主修四分制(4.3)", value: () => hideGpa.value ? '****' : displayGpa.value.majorGpa.toFixed(2), color: "#ec4899" },
+  { label: "主修学分", value: () => displayGpa.value.majorCredits.toFixed(1), color: "#eab308" },
+  { label: "百分制", value: () => hideGpa.value ? '****' : displayGpa.value.hundredPoint.toFixed(2), color: "#a855f7" },
+  { label: "四分制(4.0)", value: () => hideGpa.value ? '****' : displayGpa.value.fourPointLegacy.toFixed(2), color: "#10b981" },
+  { label: "主修四分制(4.0)", value: () => hideGpa.value ? '****' : displayGpa.value.majorGpaLegacy.toFixed(2), color: "#f43f5e" },
 ];
 
 const customGpaMode = ref(false);
@@ -211,9 +261,12 @@ function getGpaFallback(s: any, idx: number) {
     let c = g.credit || g.xf || 0;
     let val = idx === 0 ? (g.fivePoint || 0) : (g.fourPoint || 0);
     let cj = g.cj?.toString().trim() || "";
-    
     let countsForGpa = false;
-    if (["不及格", "F", "及格", "中等", "良好", "优秀"].includes(cj) || !isNaN(parseFloat(cj))) {
+    const isLetterGrade = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D"].includes(cj);
+    const isLevelGrade = ["不及格", "F", "及格", "中等", "良好", "优秀"].includes(cj);
+    const isNumericGrade = !isNaN(parseFloat(cj));
+    
+    if (isLetterGrade || isLevelGrade || isNumericGrade) {
         countsForGpa = true;
     }
     
@@ -230,10 +283,19 @@ const semesterGpa = ref([0, 0]);
 const chartOption = computed(() => {
   if (semestersList.value.length === 0) return {};
   const semesters = [...semestersList.value].reverse();
+  const policy = activePolicy.value;
   const xAxisData = semesters.map(s => s.name);
 
-  const data5 = semesters.map(s => parseFloat(getGpaFallback(s, 0).toFixed(2)));
-  const data43 = semesters.map(s => parseFloat(getGpaFallback(s, 1).toFixed(2)));
+  const data5 = semesters.map(s => {
+    const semGpa = s.gpaByPolicy?.[policy]?.fivePoint;
+    const val = semGpa ?? getGpaFallback(s, 0);
+    return parseFloat(val.toFixed(2));
+  });
+  const data43 = semesters.map(s => {
+    const semGpa = s.gpaByPolicy?.[policy]?.fourPoint;
+    const val = semGpa ?? getGpaFallback(s, 1);
+    return parseFloat(val.toFixed(2));
+  });
   
   const textColor = isLightMode.value ? '#475569' : '#cbd5e1';
   const splitLineColor = isLightMode.value ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
@@ -437,19 +499,46 @@ const customGpa = computed(() => {
   };
 });
 
+const customGpaServer = ref<any>(null);
+const customGpaDisplay = computed(() => customGpaServer.value || customGpa.value);
+
+async function refreshCustomGpaPreview() {
+  if (!customGpaMode.value || semestersList.value.length === 0) return;
+  try {
+    const grades = semestersList.value.flatMap((sem: any) => sem.grades || []);
+    const summary = await calculateGpaPreview({
+      grades,
+      selectedIds: [...customGpaSelected.value],
+      simulatedScores: simulatedScores.value,
+      retakePolicy: activePolicy.value,
+      majorCourseIds: [...majorCourseIds.value],
+    });
+    customGpaServer.value = summary;
+  } catch (err) {
+    // Keep local fallback when command fails.
+    customGpaServer.value = null;
+    console.warn('calculate_gpa_preview failed:', err);
+  }
+}
+
 const customGradeItems = [
-  { label: "DIY 五分制", value: () => customGpa.value.fivePoint.toFixed(2), color: "#06b6d4" },
-  { label: "DIY 总学分", value: () => customGpa.value.totalCredits.toFixed(1), color: "#f97316" },
-  { label: "DIY 四分制(4.3)", value: () => customGpa.value.fourPoint.toFixed(2), color: "#22c55e" },
-  { label: "DIY 主修(4.3)", value: () => customGpa.value.majorGpa.toFixed(2), color: "#ec4899" },
-  { label: "DIY 主修学分", value: () => customGpa.value.majorCredits.toFixed(1), color: "#eab308" },
-  { label: "DIY 百分制", value: () => customGpa.value.hundredPoint.toFixed(2), color: "#a855f7" },
-  { label: "DIY 四分制(4.0)", value: () => customGpa.value.fourPointLegacy.toFixed(2), color: "#10b981" },
-  { label: "DIY 主修(4.0)", value: () => customGpa.value.majorGpaLegacy.toFixed(2), color: "#f43f5e" },
+  { label: "DIY 五分制", value: () => customGpaDisplay.value.fivePoint.toFixed(2), color: "#06b6d4" },
+  { label: "DIY 总学分", value: () => customGpaDisplay.value.totalCredits.toFixed(1), color: "#f97316" },
+  { label: "DIY 四分制(4.3)", value: () => customGpaDisplay.value.fourPoint.toFixed(2), color: "#22c55e" },
+  { label: "DIY 主修(4.3)", value: () => customGpaDisplay.value.majorGpa.toFixed(2), color: "#ec4899" },
+  { label: "DIY 主修学分", value: () => customGpaDisplay.value.majorCredits.toFixed(1), color: "#eab308" },
+  { label: "DIY 百分制", value: () => customGpaDisplay.value.hundredPoint.toFixed(2), color: "#a855f7" },
+  { label: "DIY 四分制(4.0)", value: () => customGpaDisplay.value.fourPointLegacy.toFixed(2), color: "#10b981" },
+  { label: "DIY 主修(4.0)", value: () => customGpaDisplay.value.majorGpaLegacy.toFixed(2), color: "#f43f5e" },
 ];
 
 function toggleCustomMode() {
   customGpaMode.value = !customGpaMode.value;
+  if (!customGpaMode.value) {
+    customGpaServer.value = null;
+  } else {
+    refreshCustomGpaPreview();
+  }
 }
 
 function toggleCourseSelection(xkkh: string) {
@@ -461,6 +550,7 @@ function toggleCourseSelection(xkkh: string) {
     newSet.add(xkkh);
   }
   customGpaSelected.value = newSet;
+  refreshCustomGpaPreview();
 }
 
 function selectSemester(index: number) {
@@ -485,7 +575,12 @@ function selectSemester(index: number) {
      if (isPass) earned += credit;
   });
   semester.value.courseCredits = earned;
-  semesterGpa.value = [getGpaFallback(items, 0), getGpaFallback(items, 1)];
+  const semPolicy = items?.gpaByPolicy?.[activePolicy.value] || items?.gpaByPolicy?.first;
+  if (semPolicy) {
+    semesterGpa.value = [semPolicy.fivePoint || 0, semPolicy.fourPoint || 0];
+  } else {
+    semesterGpa.value = [getGpaFallback(items, 0), getGpaFallback(items, 1)];
+  }
 }
 
 function exportToCSV() {
@@ -543,25 +638,22 @@ async function fetchData() {
     lastUpdate.value = "正在同步...";
 
     // Fetch scholar data (grades, practice, etc.)
-    const data: any = await invoke("fetch_scholar_data");
+    const scholarEnv = await fetchScholarData();
+    const data: any = scholarEnv.data;
     
-    if (data._meta && data._meta.source === "cache") {
+    if (scholarEnv._meta && scholarEnv._meta.source === "cache") {
       isOffline.value = true;
-      offlineTime.value = new Date(data._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false });
+      offlineTime.value = new Date(scholarEnv._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false });
     } else {
       isOffline.value = false;
     }
-    
-    gpa.value = {
-      fivePoint: data.gpa.fivePoint || 0,
-      fourPoint: data.gpa.fourPoint || 0,
-      fourPointLegacy: data.gpa.fourPointLegacy || 0,
-      hundredPoint: data.gpa.hundredPoint || 0,
-      totalCredits: data.gpa.totalCredits || 0,
-      majorGpa: data.gpa.majorGpa || 0,
-      majorGpaLegacy: data.gpa.majorGpaLegacy || 0,
-      majorCredits: data.gpa.majorCredits || 0,
+
+    gpaByPolicy.value = data.gpaByPolicy || {
+      first: data.gpa || { ...EMPTY_GPA },
+      highest: data.gpa || { ...EMPTY_GPA },
     };
+
+    gpa.value = gpaByPolicy.value.first || { ...EMPTY_GPA };
 
     practice.value = {
       pt2: data.practice.pt2 || 0,
@@ -571,7 +663,7 @@ async function fetchData() {
 
     // Calculate Semester Info 
     // Usually we pick the latest semester from the map
-    semestersList.value = (data.semesters || []).reverse(); 
+    semestersList.value = (data.semesters || []).reverse();
 
     // Retrieve Major Course Ids
     majorCourseIds.value = new Set(data.majorCourseIds || []);
@@ -607,10 +699,11 @@ async function fetchData() {
       });
     });
     customGpaSelected.value = allCourseIds;
+    customGpaServer.value = null;
 
     // Check for notifications
     const cachedGradesStr = localStorage.getItem('knownGradedCourses');
-    if (cachedGradesStr && data._meta?.source !== "cache") {
+    if (cachedGradesStr && scholarEnv._meta?.source !== "cache") {
        const knownGrades = new Set<string>(JSON.parse(cachedGradesStr));
        const newGrades = [...gradedCourseKeys].filter(k => !knownGrades.has(k));
        
@@ -630,21 +723,18 @@ async function fetchData() {
        }
     }
     // Update the cache
-    if (data._meta?.source !== "cache") {
+    if (scholarEnv._meta?.source !== "cache") {
       localStorage.setItem('knownGradedCourses', JSON.stringify([...gradedCourseKeys]));
     }
-
+    semester.value.name = data.semesters?.[0]?.name || "无数据";
     if (semestersList.value.length > 0) {
-      semester.value.examCount = data.exams?.length || 0;
       selectSemester(0);
-    } else {
-      semester.value.name = "无数据";
     }
-
+    
     // Fetch Todos
     try {
-      const td: any = await invoke("fetch_todos");
-      const list = td.todo_list || [];
+      const tdEnv = await fetchTodos();
+      const list = tdEnv.data.todo_list || [];
       const now = Date.now();
       
       let inOneDay = 0;
@@ -682,6 +772,31 @@ async function fetchData() {
     isLoading.value = false;
   }
 }
+function formatSemesterName(name: string) {
+  if (!name || !name.includes('-')) return name;
+  const parts = name.split('-');
+  if (parts.length < 3) return name;
+  const startYear = parts[0].slice(-2);
+  const endYear = parts[1].slice(-2);
+  const semType = parts[2] === '1' ? '秋冬' : (parts[2] === '2' ? '春夏' : '短');
+  return `${startYear}-${endYear} ${semType}`;
+}
+
+watch(
+  [
+    customGpaMode,
+    () => [...customGpaSelected.value].sort().join(','),
+    simulatedScores,
+    semestersList,
+    activePolicy,
+  ],
+  () => {
+    if (customGpaMode.value) {
+      refreshCustomGpaPreview();
+    }
+  },
+  { deep: true }
+);
 
 onMounted(() => {
   fetchData();
@@ -768,7 +883,7 @@ onMounted(() => {
           :class="{ active: selectedSemesterIndex === index }"
           @click="selectSemester(index)"
         >
-          {{ sem.name }}
+          {{ formatSemesterName(sem.name) }}
         </button>
       </div>
 
