@@ -1010,17 +1010,17 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
 }
 
-:root.light-theme .semester-tabs {
+:global(.light-theme) .semester-tabs {
   background: rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 0, 0, 0.06);
 }
-:root.light-theme .semester-tab {
+:global(.light-theme) .semester-tab {
   color: #64748b;
 }
-:root.light-theme .semester-tab:hover {
+:global(.light-theme) .semester-tab:hover {
   background: rgba(0, 0, 0, 0.06);
 }
-:root.light-theme .semester-tab.active {
+:global(.light-theme) .semester-tab.active {
   background: #0284c7;
   color: white;
 }
@@ -1062,19 +1062,19 @@ onMounted(() => {
   opacity: 0.8;
 }
 
-:root.light-theme .week-selector-pill {
+:global(.light-theme) .week-selector-pill {
   background: rgba(0,0,0,0.05);
   border-color: rgba(0,0,0,0.1);
   box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
 }
-:root.light-theme .pill-btn {
+:global(.light-theme) .pill-btn {
   color: #64748b;
 }
-:root.light-theme .pill-btn:hover {
+:global(.light-theme) .pill-btn:hover {
   background: rgba(0,0,0,0.08);
   color: #0f172a;
 }
-:root.light-theme .pill-label {
+:global(.light-theme) .pill-label {
   color: #334155;
 }
 
@@ -1116,7 +1116,7 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.1);
   transform: scale(1.05);
 }
-:root.light-theme .week-btn {
+:global(.light-theme) .week-btn {
   background: rgba(0, 0, 0, 0.05);
   border-color: rgba(0, 0, 0, 0.1);
   color: #1e293b;
@@ -1442,7 +1442,7 @@ onMounted(() => {
   margin-bottom: 8px;
   border-left: 4px solid transparent;
 }
-:root.light-theme .day-item {
+:global(.light-theme) .day-item {
   background: rgba(0,0,0,0.03);
 }
 
@@ -1464,135 +1464,135 @@ onMounted(() => {
 /* ═══════════════════════════════════════════════════════ */
 /*             COMPREHENSIVE LIGHT MODE OVERRIDES          */
 /* ═══════════════════════════════════════════════════════ */
-:root.light-theme .calendar-view {
+:global(.light-theme) .calendar-view {
   color: #1e293b;
 }
-:root.light-theme .cal-header h1,
-:root.light-theme .week-label,
-:root.light-theme .month-label {
+:global(.light-theme) .cal-header h1,
+:global(.light-theme) .week-label,
+:global(.light-theme) .month-label {
   color: #1e293b;
 }
-:root.light-theme .week-btn {
+:global(.light-theme) .week-btn {
   background: rgba(0,0,0,0.06);
   color: #334155;
   border-color: rgba(0,0,0,0.08);
 }
-:root.light-theme .week-btn:hover {
+:global(.light-theme) .week-btn:hover {
   background: rgba(0,0,0,0.10);
 }
-:root.light-theme .schedule-grid {
+:global(.light-theme) .schedule-grid {
   border-color: rgba(0,0,0,0.06);
 }
-:root.light-theme .grid-day-header {
+:global(.light-theme) .grid-day-header {
   color: #334155;
 }
-:root.light-theme .grid-day-header .day-num {
+:global(.light-theme) .grid-day-header .day-num {
   color: #1e293b;
 }
-:root.light-theme .grid-cell {
+:global(.light-theme) .grid-cell {
   border-color: rgba(0,0,0,0.04);
 }
-:root.light-theme .grid-period-label .period-num {
+:global(.light-theme) .grid-period-label .period-num {
   color: #334155;
 }
-:root.light-theme .grid-period-label .period-time {
+:global(.light-theme) .grid-period-label .period-time {
   color: #64748b;
 }
-:root.light-theme .course-block {
+:global(.light-theme) .course-block {
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
-:root.light-theme .course-block .course-name {
+:global(.light-theme) .course-block .course-name {
   color: #fff;  /* keep white on colored accent bg */
 }
-:root.light-theme .course-block .course-loc {
+:global(.light-theme) .course-block .course-loc {
   color: rgba(255,255,255,0.85);
 }
-:root.light-theme .today-summary h3 {
+:global(.light-theme) .today-summary h3 {
   color: #1e293b;
 }
-:root.light-theme .today-item .today-name {
+:global(.light-theme) .today-item .today-name {
   color: #1e293b;
 }
-:root.light-theme .today-item .today-time,
-:root.light-theme .today-item .today-loc {
+:global(.light-theme) .today-item .today-time,
+:global(.light-theme) .today-item .today-loc {
   color: #64748b;
 }
 
 /* Glass panel in light mode */
-:root.light-theme .glass-panel {
+:global(.light-theme) .glass-panel {
   background: rgba(255, 255, 255, 0.8);
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow: 0 8px 32px rgba(0,0,0,0.08);
 }
-:root.light-theme .modal-overlay {
+:global(.light-theme) .modal-overlay {
   background: rgba(0,0,0,0.25);
 }
-:root.light-theme .modal-content h3 {
+:global(.light-theme) .modal-content h3 {
   color: #1e293b;
 }
-:root.light-theme .modal-content p {
+:global(.light-theme) .modal-content p {
   color: #64748b !important;
 }
 
 /* Detail rows light mode */
-:root.light-theme .detail-row {
+:global(.light-theme) .detail-row {
   background: rgba(0,0,0,0.03);
   border-color: rgba(0,0,0,0.05);
 }
-:root.light-theme .detail-label {
+:global(.light-theme) .detail-label {
   color: #64748b;
 }
-:root.light-theme .detail-value {
+:global(.light-theme) .detail-value {
   color: #1e293b;
 }
 
 /* Month grid light mode */
-:root.light-theme .month-cell {
+:global(.light-theme) .month-cell {
   background: rgba(255,255,255,0.6);
   border-color: rgba(0,0,0,0.06);
 }
-:root.light-theme .month-cell:not(.empty):hover {
+:global(.light-theme) .month-cell:not(.empty):hover {
   background: rgba(0,0,0,0.04);
 }
-:root.light-theme .month-day-num {
+:global(.light-theme) .month-day-num {
   color: #1e293b;
 }
-:root.light-theme .month-day-header {
+:global(.light-theme) .month-day-header {
   color: #64748b;
 }
-:root.light-theme .month-cell.selected {
+:global(.light-theme) .month-cell.selected {
   background: #0284c7;
   border-color: #0284c7;
 }
-:root.light-theme .month-cell.selected .month-day-num {
+:global(.light-theme) .month-cell.selected .month-day-num {
   color: #fff;
 }
-:root.light-theme .month-cell.in-week {
+:global(.light-theme) .month-cell.in-week {
   background: rgba(2, 132, 199, 0.08);
   border-color: rgba(2, 132, 199, 0.15);
 }
-:root.light-theme .month-cell.is-today .month-day-num {
+:global(.light-theme) .month-cell.is-today .month-day-num {
   background: #0284c7;
   color: #fff;
 }
 
 /* Selected day panel light mode */
-:root.light-theme .panel-date {
+:global(.light-theme) .panel-date {
   color: #1e293b;
 }
-:root.light-theme .empty-state {
+:global(.light-theme) .empty-state {
   color: #64748b;
 }
-:root.light-theme .day-section h4 {
+:global(.light-theme) .day-section h4 {
   color: #334155;
 }
-:root.light-theme .day-item {
+:global(.light-theme) .day-item {
   background: rgba(0,0,0,0.03);
 }
-:root.light-theme .item-title {
+:global(.light-theme) .item-title {
   color: #1e293b;
 }
-:root.light-theme .item-desc {
+:global(.light-theme) .item-desc {
   color: #64748b;
 }
 
@@ -1615,7 +1615,7 @@ onMounted(() => {
   font-weight: 600;
   color: #e2e8f0;
 }
-:root.light-theme .hide-course-settings span {
+:global(.light-theme) .hide-course-settings span {
   color: #334155;
 }
 .hide-course-settings:hover {
@@ -1650,14 +1650,14 @@ onMounted(() => {
 .toggle-switch.active .toggle-knob {
   transform: translateX(22px);
 }
-:root.light-theme .toggle-switch {
+:global(.light-theme) .toggle-switch {
   background: rgba(0,0,0,0.15);
 }
 
 .action-icon-btn {
   color: #1e293b;
 }
-:root.light-theme .item-desc {
+:global(.light-theme) .item-desc {
   color: #64748b;
 }
 
@@ -1684,17 +1684,17 @@ onMounted(() => {
   background: #0284c7;
 }
 
-:root.light-theme .action-icon-btn {
+:global(.light-theme) .action-icon-btn {
   color: #64748b;
 }
-:root.light-theme .action-icon-btn:hover {
+:global(.light-theme) .action-icon-btn:hover {
   background: rgba(0,0,0,0.05);
 }
-:root.light-theme .action-icon-btn.primary-icon-btn {
+:global(.light-theme) .action-icon-btn.primary-icon-btn {
   background: #0ea5e9;
   color: white;
 }
-:root.light-theme .action-icon-btn.primary-icon-btn:hover {
+:global(.light-theme) .action-icon-btn.primary-icon-btn:hover {
   background: #0284c7;
 }
 

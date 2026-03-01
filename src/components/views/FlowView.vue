@@ -16,6 +16,9 @@ interface FlowItem {
 const isLoading = ref(true);
 const items = ref<FlowItem[]>([]);
 const isOffline = ref(false);
+const DEFAULT_FLOW_COLORS = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#ec4899", "#eab308"];
+const FLOW_COLOR_TOKENS = ["--accent-blue", "--accent-purple", "--accent-amber", "--accent-green", "--accent-pink", "--accent-yellow"];
+const colors = ref<string[]>([...DEFAULT_FLOW_COLORS]);
 
 const periods = [
   { label: "1-2节", time: "08:00", ms: 8 * 3600000 },
@@ -26,7 +29,15 @@ const periods = [
   { label: "11-12节", time: "20:40", ms: 20 * 3600000 + 40 * 60000 },
 ];
 
-const colors = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#ec4899", "#eab308"];
+function readCssVar(name: string, fallback: string) {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function buildFlowColors() {
+  return DEFAULT_FLOW_COLORS.map((fallback, idx) => readCssVar(FLOW_COLOR_TOKENS[idx], fallback));
+}
 
 async function loadFlow() {
   isLoading.value = true;
@@ -54,7 +65,7 @@ async function loadFlow() {
           subtitle: t.course_name || '学在浙大',
           timeLabel: new Date(t.end_time).toLocaleString('zh-CN', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}),
           timeMs: ms,
-          color: '#ef4444' // Red for tasks
+          color: readCssVar("--accent-red", "#ef4444")
         });
       }
     });
@@ -125,7 +136,9 @@ async function loadFlow() {
                 let mappedIdx = startP > 10 ? 5 : Math.floor((startP - 1) / 2);
                 if (mappedIdx >= 0 && mappedIdx < periods.length) {
                   const name = session.kcmc || "";
-                  if (!courseColors[name]) courseColors[name] = colors[colorIdx++ % colors.length];
+                  if (!courseColors[name]) {
+                    courseColors[name] = colors.value[colorIdx++ % colors.value.length];
+                  }
                   
                   const courseMs = d.getTime() + periods[mappedIdx].ms;
 
@@ -160,6 +173,7 @@ async function loadFlow() {
 }
 
 onMounted(() => {
+  colors.value = buildFlowColors();
   loadFlow();
 });
 </script>
@@ -167,7 +181,7 @@ onMounted(() => {
 <template>
   <div class="flow-view">
     <header class="section-header">
-      <h2>接下来 <span style="color:#64748b; font-weight:400; font-size:1.2rem;">(Flow)</span></h2>
+      <h2>接下来 <span class="section-subtitle">(Flow)</span></h2>
       <div v-if="isOffline" class="offline-badge">离线模式</div>
     </header>
 
@@ -176,7 +190,7 @@ onMounted(() => {
     </div>
 
     <div v-else-if="items.length === 0" class="empty-state">
-      <span style="font-size: 3rem; margin-bottom: 1rem;">🌴</span>
+      <span class="empty-icon">🌴</span>
       <h3>近期暂无安排</h3>
       <p>享受你的空闲时间吧！</p>
     </div>
@@ -212,6 +226,20 @@ onMounted(() => {
 
 <style scoped>
 .flow-view {
+  --flow-title: var(--text-main);
+  --flow-subtitle: var(--text-muted);
+  --flow-offline-bg: color-mix(in srgb, var(--accent-amber) 18%, transparent);
+  --flow-offline-text: var(--accent-amber);
+  --flow-offline-border: color-mix(in srgb, var(--accent-amber) 35%, transparent);
+  --flow-timeline-line: var(--panel-border);
+  --flow-time-text: var(--text-muted);
+  --flow-item-bg: color-mix(in srgb, var(--accent) 5%, transparent);
+  --flow-heading: var(--text-main);
+  --flow-muted: var(--text-muted);
+  --flow-state-text: var(--text-muted);
+  --flow-loader-border: var(--card-border);
+  --flow-loader-top: var(--accent-blue);
+
   padding: 2rem 2.5rem 6rem;
   max-width: 800px;
   margin: 0 auto;
@@ -226,15 +254,22 @@ onMounted(() => {
 .section-header h2 {
   font-size: 2rem;
   margin: 0;
-  color: #e2e8f0;
+  color: var(--flow-title);
 }
+
+.section-subtitle {
+  color: var(--flow-subtitle);
+  font-weight: 400;
+  font-size: 1.2rem;
+}
+
 .offline-badge {
-  background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+  background: var(--flow-offline-bg);
+  color: var(--flow-offline-text);
   padding: 4px 12px;
   border-radius: 20px;
   font-size: 0.85rem;
-  border: 1px solid rgba(245, 158, 11, 0.4);
+  border: 1px solid var(--flow-offline-border);
 }
 
 .timeline {
@@ -250,7 +285,7 @@ onMounted(() => {
   top: 10px;
   bottom: 0;
   width: 2px;
-  background: linear-gradient(to bottom, rgba(255,255,255,0.1), transparent);
+  background: linear-gradient(to bottom, var(--flow-timeline-line), transparent);
 }
 
 .timeline-item {
@@ -274,13 +309,13 @@ onMounted(() => {
   height: 14px;
   border-radius: 50%;
   box-shadow: 0 0 10px currentColor;
-  border: 2px solid #0f172a;
+  border: 2px solid var(--bg-main);
   z-index: 2;
 }
 .time-text {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--flow-time-text);
 }
 
 .card-wrapper {
@@ -291,7 +326,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 15px;
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  background: var(--flow-item-bg);
   border-left: 3px solid var(--accent);
 }
 .badge {
@@ -307,11 +342,11 @@ onMounted(() => {
 .content h4 {
   margin: 0 0 4px;
   font-size: 1.1rem;
-  color: #f8fafc;
+  color: var(--flow-heading);
 }
 .content p {
   margin: 0;
-  color: #94a3b8;
+  color: var(--flow-muted);
   font-size: 0.85rem;
 }
 
@@ -321,16 +356,21 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   height: 400px;
-  color: #64748b;
+  color: var(--flow-state-text);
   text-align: center;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
 }
 
 .loader {
   width: 30px;
   height: 30px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
+  border: 3px solid var(--flow-loader-border);
   border-radius: 50%;
-  border-top-color: #38bdf8;
+  border-top-color: var(--flow-loader-top);
   animation: spin 1s linear infinite;
 }
 
@@ -340,49 +380,16 @@ onMounted(() => {
   to { opacity: 1; transform: translateX(0); }
 }
 
-/* Light Mode Overrides */
-:root.light-theme .section-header h2 {
-  color: #1e293b;
-}
-:root.light-theme .offline-badge {
-  background: rgba(245, 158, 11, 0.1);
-  color: #d97706;
-  border-color: rgba(245, 158, 11, 0.3);
-}
-:root.light-theme .timeline::before {
-  background: linear-gradient(to bottom, rgba(0,0,0,0.1), transparent);
-}
-:root.light-theme .time-dot {
-  border-color: #f0f4f8;
-}
-:root.light-theme .time-text {
-  color: #334155;
-}
-:root.light-theme .item-card {
-  background: rgba(255, 255, 255, 0.75);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-}
-:root.light-theme .content h4 {
-  color: #1e293b;
-}
-:root.light-theme .content p {
-  color: #64748b;
-}
-:root.light-theme .badge.course {
+:global(.light-theme) .badge.course {
   background: rgba(2, 132, 199, 0.1);
   color: #0284c7;
 }
-:root.light-theme .badge.task {
+:global(.light-theme) .badge.task {
   background: rgba(220, 38, 38, 0.1);
   color: #dc2626;
 }
-:root.light-theme .empty-state,
-:root.light-theme .loading-state {
-  color: #64748b;
-}
-:root.light-theme .loader {
-  border: 3px solid rgba(0, 0, 0, 0.1);
-  border-top-color: #0284c7;
+:global(.light-theme) .item-card {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 </style>

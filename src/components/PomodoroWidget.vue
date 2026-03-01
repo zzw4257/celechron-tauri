@@ -175,10 +175,10 @@ if (typeof Notification !== 'undefined' && Notification.permission !== 'granted'
   opacity: 0.5;
   cursor: not-allowed;
 }
-:root.light-theme .pomo-header h3 { color: #1e293b; }
-:root.light-theme .time { color: #1e293b; }
-:root.light-theme .pomo-display { border-color: rgba(0,0,0,0.1); }
-:root.light-theme .preset-btn {
+:global(.light-theme) .pomo-header h3 { color: #1e293b; }
+:global(.light-theme) .time { color: #1e293b; }
+:global(.light-theme) .pomo-display { border-color: rgba(0,0,0,0.1); }
+:global(.light-theme) .preset-btn {
   color: #64748b;
   border-color: rgba(0,0,0,0.1);
 }

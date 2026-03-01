@@ -98,7 +98,7 @@ onMounted(() => {
       <h1>任务</h1>
     </header>
 
-    <div style="margin-bottom: 1.5rem;">
+    <div class="pomodoro-wrap">
       <PomodoroWidget />
     </div>
 
@@ -194,6 +194,23 @@ onMounted(() => {
 
 <style scoped>
 .task-view {
+  --task-title-start: var(--text-main);
+  --task-title-end: var(--text-main);
+  --task-offline-bg: color-mix(in srgb, var(--accent-amber) 15%, transparent);
+  --task-offline-border: color-mix(in srgb, var(--accent-amber) 30%, transparent);
+  --task-offline-text: var(--accent-amber);
+  --task-offline-strong: var(--accent-amber);
+  --task-state-text: var(--text-muted);
+  --task-section-bg: var(--card-bg);
+  --task-section-border: var(--card-border);
+  --task-section-title: var(--text-main);
+  --task-card-bg: color-mix(in srgb, var(--panel-bg) 70%, transparent);
+  --task-card-border: var(--panel-border);
+  --task-card-hover-bg: color-mix(in srgb, var(--card-bg) 45%, transparent);
+  --task-name: var(--text-main);
+  --task-course: var(--text-muted);
+  --task-ddl: var(--text-muted);
+
   padding: 2rem 2.5rem 6rem;
   max-width: 950px;
   margin: 0 auto;
@@ -206,17 +223,21 @@ onMounted(() => {
   font-size: 1.8rem;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+  background: linear-gradient(135deg, var(--task-title-start), var(--task-title-end));
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
+.pomodoro-wrap {
+  margin-bottom: 1.5rem;
+}
+
 /* Offline Banner */
 .offline-banner {
-  background: rgba(245, 158, 11, 0.15);
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  color: #fcd34d;
+  background: var(--task-offline-bg);
+  border: 1px solid var(--task-offline-border);
+  color: var(--task-offline-text);
   padding: 12px 16px;
   border-radius: 16px;
   display: flex;
@@ -233,7 +254,7 @@ onMounted(() => {
 }
 .offline-text strong {
   display: block;
-  color: #fbbf24;
+  color: var(--task-offline-strong);
   margin-bottom: 2px;
 }
 
@@ -244,7 +265,7 @@ onMounted(() => {
 
 .loading-state, .empty-state {
   text-align: center;
-  color: #94a3b8;
+  color: var(--task-state-text);
   padding: 3rem 0;
   font-size: 1.1rem;
 }
@@ -257,8 +278,8 @@ onMounted(() => {
 
 /* Section Card styled for Liquid Glass */
 .section-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: var(--task-section-bg);
+  border: 1px solid var(--task-section-border);
   border-radius: 20px;
   padding: 1.5rem;
   backdrop-filter: blur(12px);
@@ -266,7 +287,7 @@ onMounted(() => {
 .section-title {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #e2e8f0;
+  color: var(--task-section-title);
   margin-bottom: 1rem;
 }
 
@@ -277,8 +298,8 @@ onMounted(() => {
 }
 
 .task-card {
-  background: rgba(0,0,0,0.3);
-  border: 1px solid rgba(255,255,255,0.05);
+  background: var(--task-card-bg);
+  border: 1px solid var(--task-card-border);
   border-radius: 14px;
   padding: 1rem 1.2rem;
   display: flex;
@@ -288,7 +309,7 @@ onMounted(() => {
   cursor: default;
 }
 .task-card:hover {
-  background: rgba(255,255,255,0.03);
+  background: var(--task-card-hover-bg);
   transform: translateX(4px);
 }
 .task-card.urgent {
@@ -303,11 +324,11 @@ onMounted(() => {
 .task-name {
   font-size: 1rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--task-name);
 }
 .task-course {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--task-course);
 }
 
 .task-meta {
@@ -318,7 +339,7 @@ onMounted(() => {
 }
 .task-ddl {
   font-size: 0.8rem;
-  color: #cbd5e1;
+  color: var(--task-ddl);
   font-variant-numeric: tabular-nums;
 }
 
@@ -333,52 +354,12 @@ onMounted(() => {
   .task-meta { align-items: flex-start; flex-direction: row-reverse; width: 100%; justify-content: space-between; }
 }
 
-/* Light Mode Overrides */
-:root.light-theme .task-header h1 {
-  background: linear-gradient(135deg, #1e293b, #334155);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+:global(.light-theme) .section-card {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
-:root.light-theme .offline-banner {
-  background: rgba(245, 158, 11, 0.1);
-  color: #d97706;
-  border-color: rgba(245, 158, 11, 0.3);
-}
-:root.light-theme .offline-text strong {
-  color: #b45309;
-}
-:root.light-theme .loading-state,
-:root.light-theme .empty-state {
-  color: #64748b;
-}
-:root.light-theme .section-card {
-  background: rgba(255, 255, 255, 0.7);
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-}
-:root.light-theme .section-title {
-  color: #1e293b;
-}
-:root.light-theme .task-card {
-  background: rgba(255, 255, 255, 0.6);
-  border-color: rgba(0, 0, 0, 0.05);
-}
-:root.light-theme .task-card:hover {
-  background: rgba(0, 0, 0, 0.02);
-}
-:root.light-theme .task-name {
-  color: #1e293b;
-}
-:root.light-theme .task-course {
-  color: #64748b;
-}
-:root.light-theme .task-ddl {
-  color: #64748b;
-}
-:root.light-theme .badge-red { background: rgba(220, 38, 38, 0.1); color: #dc2626; }
-:root.light-theme .badge-orange { background: rgba(234, 88, 12, 0.1); color: #ea580c; }
-:root.light-theme .badge-blue { background: rgba(2, 132, 199, 0.1); color: #0284c7; }
-:root.light-theme .badge-gray { background: rgba(100, 116, 139, 0.1); color: #475569; }
+:global(.light-theme) .badge-red { background: rgba(220, 38, 38, 0.1); color: #dc2626; }
+:global(.light-theme) .badge-orange { background: rgba(234, 88, 12, 0.1); color: #ea580c; }
+:global(.light-theme) .badge-blue { background: rgba(2, 132, 199, 0.1); color: #0284c7; }
+:global(.light-theme) .badge-gray { background: rgba(100, 116, 139, 0.1); color: #475569; }
 
 </style>

@@ -6,6 +6,7 @@ import { useTheme, type ThemeType } from "../../composables/useTheme";
 import { useAccounts, type SavedAccount } from "../../composables/useAccounts";
 import { useBiometric } from "../../composables/useBiometric";
 import { fetchScholarData, fetchTodos } from "../../services/api";
+import packageJson from "../../../package.json";
 
 const { currentTheme, THEMES, setTheme, isLightMode, toggleLightMode, glassEffect, setGlassEffect } = useTheme();
 const { accounts, addAccount, removeAccount, updateNickname, getPassword, accountDisplayName, isFull } = useAccounts();
@@ -65,6 +66,7 @@ const addFormPassword = ref("");
 const addFormNickname = ref("");
 const addFormStatus = ref("");
 const addFormLoading = ref(false);
+const appVersion = packageJson.version;
 
 async function handleRefresh() {
   if (isRefreshing.value) return;
@@ -197,9 +199,9 @@ function deleteAccount(id: string) {
         
         <div class="settings-card">
           <!-- Light / Dark Mode -->
-          <div class="setting-item" style="cursor: default;">
-            <div class="setting-info" style="align-items: center; justify-content: space-between; width: 100%;">
-              <div style="display: flex; gap: 1rem; align-items: center;">
+          <div class="setting-item readonly-item">
+            <div class="setting-info setting-info-spread">
+              <div class="setting-head-row">
                 <SunMoon class="setting-icon" />
                 <div class="setting-text">
                   <span class="setting-name">显示模式</span>
@@ -213,9 +215,9 @@ function deleteAccount(id: string) {
           </div>
 
           <!-- Glass Effect Level -->
-          <div class="setting-item" style="cursor: default;">
-            <div class="setting-info" style="align-items: center; justify-content: space-between; width: 100%;">
-              <div style="display: flex; gap: 1rem; align-items: center;">
+          <div class="setting-item readonly-item">
+            <div class="setting-info setting-info-spread">
+              <div class="setting-head-row">
                 <Layers class="setting-icon" />
                 <div class="setting-text">
                   <span class="setting-name">玻璃视效 (渲染引击)</span>
@@ -238,10 +240,10 @@ function deleteAccount(id: string) {
           </div>
 
           <!-- Color Palette -->
-          <div class="setting-item" style="cursor: default; border-bottom: none;">
-            <div class="setting-info" style="align-items: flex-start;">
+          <div class="setting-item readonly-item no-divider">
+            <div class="setting-info setting-info-start">
               <Palette class="setting-icon" />
-              <div class="setting-text" style="width: 100%;">
+              <div class="setting-text setting-text-full">
                 <span class="setting-name">主题色盘 (Color Palette)</span>
                 <span class="setting-desc">应用全局液态玻璃渲染风格</span>
                 
@@ -273,30 +275,28 @@ function deleteAccount(id: string) {
         <h3 class="group-title">教务</h3>
         <div class="settings-card">
           <!-- Retake Policy -->
-          <div class="setting-item" style="cursor: default;">
-            <div class="setting-info" style="align-items: center; justify-content: space-between; width: 100%;">
+          <div class="setting-item readonly-item">
+            <div class="setting-info setting-info-spread">
               <div class="setting-text">
                 <span class="setting-name">重修绩点计算</span>
               </div>
-              <div class="segmented-control glass-panel" style="display: flex; gap: 4px; padding: 4px; border-radius: 8px;">
+              <div class="segmented-control glass-panel">
                 <button 
                   class="seg-btn" 
                   :class="{ active: retakePolicy === 'first' }" 
                   @click="setRetakePolicy('first')"
-                  style="border: none; background: transparent; padding: 4px 12px; border-radius: 6px; cursor: pointer; color: var(--text-color);"
                 >取首次</button>
                 <button 
                   class="seg-btn" 
                   :class="{ active: retakePolicy === 'highest' }" 
                   @click="setRetakePolicy('highest')"
-                  style="border: none; background: transparent; padding: 4px 12px; border-radius: 6px; cursor: pointer; color: var(--text-color);"
                 >取最高</button>
               </div>
             </div>
           </div>
           <!-- Hide GPA -->
-          <div class="setting-item" style="cursor: default; border-bottom: none;">
-            <div class="setting-info" style="align-items: center; justify-content: space-between; width: 100%;">
+          <div class="setting-item readonly-item no-divider">
+            <div class="setting-info setting-info-spread">
               <div class="setting-text">
                 <span class="setting-name">隐藏绩点</span>
               </div>
@@ -312,8 +312,8 @@ function deleteAccount(id: string) {
       <section class="settings-group">
         <h3 class="group-title">安全与隐私</h3>
         <div class="settings-card">
-          <div class="setting-item" @click="toggleBiometricAuth" style="cursor: default;">
-            <div class="setting-info" style="align-items: center; justify-content: space-between; width: 100%;">
+          <div class="setting-item readonly-item" @click="toggleBiometricAuth">
+            <div class="setting-info setting-info-spread">
               <div class="setting-text">
                 <span class="setting-name">生物识别验证</span>
                 <span class="setting-desc">
@@ -399,7 +399,7 @@ function deleteAccount(id: string) {
             {{ switchStatus }}
           </div>
 
-          <div class="setting-item danger" @click="handleLogout" style="border-top: 1px solid rgba(0,0,0,0.05); margin-top: 0.5rem; padding-top: 1.2rem;">
+          <div class="setting-item danger logout-separator" @click="handleLogout">
             <div class="setting-info">
               <LogOut class="setting-icon" />
               <div class="setting-text">
@@ -416,7 +416,7 @@ function deleteAccount(id: string) {
         <div class="about-card">
           <LayoutTemplate class="app-icon" />
           <h2>Celechron</h2>
-          <p>Version 0.2.0-beta</p>
+          <p>Version {{ appVersion }}</p>
           <span class="footer-note">Designed with Liquid Glass</span>
         </div>
       </section>
@@ -427,6 +427,28 @@ function deleteAccount(id: string) {
 
 <style scoped>
 .option-view {
+  --option-title-start: var(--text-main);
+  --option-title-end: var(--text-main);
+  --option-group-title: var(--text-muted);
+  --option-card-bg: var(--card-bg);
+  --option-card-border: var(--card-border);
+  --option-item-hover: color-mix(in srgb, var(--card-bg) 45%, transparent);
+  --option-icon: var(--accent-blue);
+  --option-danger: var(--accent-red);
+  --option-danger-soft: var(--accent-red);
+  --option-danger-hover: color-mix(in srgb, var(--accent-red) 12%, transparent);
+  --option-name: var(--text-main);
+  --option-desc: var(--text-muted);
+  --option-toggle-bg: var(--input-border);
+  --option-toggle-active-bg: var(--accent-blue);
+  --option-toggle-knob: var(--text-inverse);
+  --option-btn-group-bg: color-mix(in srgb, var(--card-bg) 55%, transparent);
+  --option-segment-text: var(--text-muted);
+  --option-segment-hover: var(--text-main);
+  --option-segment-active-bg: var(--accent-blue-light);
+  --option-segment-active-text: var(--accent-blue);
+  --option-separator: var(--card-border);
+
   padding: 2rem 2.5rem 6rem;
   max-width: 950px;
   margin: 0 auto;
@@ -439,7 +461,7 @@ function deleteAccount(id: string) {
   font-size: 1.8rem;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+  background: linear-gradient(135deg, var(--option-title-start), var(--option-title-end));
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -461,15 +483,15 @@ function deleteAccount(id: string) {
 .group-title {
   font-size: 0.9rem;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--option-group-title);
   margin: 0;
   padding-left: 10px;
   letter-spacing: 0.5px;
 }
 
 .settings-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: var(--option-card-bg);
+  border: 1px solid var(--option-card-border);
   border-radius: 20px;
   overflow: hidden;
   backdrop-filter: blur(12px);
@@ -485,7 +507,7 @@ function deleteAccount(id: string) {
 }
 
 .setting-item:hover {
-  background: rgba(255,255,255,0.05);
+  background: var(--option-item-hover);
 }
 
 .setting-info {
@@ -494,18 +516,46 @@ function deleteAccount(id: string) {
   gap: 1rem;
 }
 
+.setting-info-spread {
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.setting-info-start {
+  align-items: flex-start;
+}
+
+.setting-head-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.setting-text-full {
+  width: 100%;
+}
+
+.readonly-item {
+  cursor: default;
+}
+
+.no-divider {
+  border-bottom: none;
+}
+
 .setting-icon {
   width: 24px;
   height: 24px;
-  color: #38bdf8;
+  color: var(--option-icon);
 }
 
 .setting-item.danger .setting-icon {
-  color: #ef4444;
+  color: var(--option-danger);
 }
 
 .setting-item.danger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--option-danger-hover);
 }
 
 .setting-text {
@@ -517,16 +567,22 @@ function deleteAccount(id: string) {
 .setting-name {
   font-size: 1.05rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--option-name);
 }
 
 .setting-item.danger .setting-name {
-  color: #fca5a5;
+  color: var(--option-danger-soft);
+}
+
+.logout-separator {
+  border-top: 1px solid var(--option-separator);
+  margin-top: 0.5rem;
+  padding-top: 1.2rem;
 }
 
 .setting-desc {
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: var(--option-desc);
 }
 
 .spinning {
@@ -551,7 +607,7 @@ function deleteAccount(id: string) {
 .toggle-switch {
   width: 50px;
   height: 28px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--option-toggle-bg);
   border-radius: 14px;
   position: relative;
   cursor: pointer;
@@ -559,12 +615,12 @@ function deleteAccount(id: string) {
   flex-shrink: 0;
 }
 .toggle-switch.active {
-  background: #38bdf8;
+  background: var(--option-toggle-active-bg);
 }
 .toggle-knob {
   width: 24px;
   height: 24px;
-  background: #fff;
+  background: var(--option-toggle-knob);
   border-radius: 50%;
   position: absolute;
   top: 2px;
@@ -579,17 +635,43 @@ function deleteAccount(id: string) {
 .btn-group {
   display: flex;
   flex-wrap: wrap;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--option-btn-group-bg);
   border-radius: 12px;
   padding: 4px;
   gap: 4px;
+}
+
+.segmented-control {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.seg-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--option-segment-text);
+  transition: background 0.2s, color 0.2s;
+}
+
+.seg-btn:hover {
+  color: var(--option-segment-hover);
+}
+
+.seg-btn.active {
+  background: var(--option-segment-active-bg);
+  color: var(--option-segment-active-text);
 }
 .btn-segment {
   flex: 1;
   min-width: fit-content;
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--option-segment-text);
   padding: 6px 10px;
   border-radius: 8px;
   font-size: 0.8rem;
@@ -599,70 +681,32 @@ function deleteAccount(id: string) {
   white-space: nowrap;
 }
 .btn-segment:hover {
-  color: #f8fafc;
+  color: var(--option-segment-hover);
 }
 .btn-segment.active {
-  background: rgba(56, 189, 248, 0.2);
-  color: #38bdf8;
+  background: var(--option-segment-active-bg);
+  color: var(--option-segment-active-text);
 }
 
-:root.light-theme .btn-segment.active {
-  background: #fff;
-  color: #0284c7;
+:global(.light-theme) .btn-segment.active {
   box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
-:root.light-theme .btn-group {
-  background: rgba(0,0,0,0.05);
+:global(.light-theme) .seg-btn.active {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
-:root.light-theme .toggle-switch {
-  background: rgba(0,0,0,0.15);
-}
-
-/* ── Comprehensive Light Mode for OptionView ── */
-:root.light-theme .option-view {
-  color: #1e293b;
-}
-:root.light-theme .option-header h1 {
-  background: linear-gradient(135deg, #1e293b, #334155);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-:root.light-theme .group-title {
+:global(.light-theme) .swatch-name {
   color: #334155;
 }
-:root.light-theme .settings-card {
-  background: rgba(255,255,255,0.7);
-  border-color: rgba(0,0,0,0.08);
-}
-:root.light-theme .setting-name {
-  color: #1e293b;
-}
-:root.light-theme .setting-desc {
-  color: #64748b;
-}
-:root.light-theme .setting-icon {
-  color: #0284c7;
-}
-:root.light-theme .swatch-name {
-  color: #334155;
-}
-:root.light-theme .theme-swatch {
+:global(.light-theme) .theme-swatch {
   background: rgba(0,0,0,0.04);
   border-color: rgba(0,0,0,0.06);
 }
-:root.light-theme .theme-swatch:hover {
+:global(.light-theme) .theme-swatch:hover {
   background: rgba(0,0,0,0.06);
 }
-:root.light-theme .theme-swatch.active {
+:global(.light-theme) .theme-swatch.active {
   background: rgba(2,132,199,0.08);
   border-color: #0284c7;
-}
-:root.light-theme .btn-segment {
-  color: #64748b;
-}
-:root.light-theme .btn-segment:hover {
-  color: #1e293b;
 }
 
 .theme-grid {

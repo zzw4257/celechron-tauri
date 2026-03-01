@@ -24,6 +24,27 @@ const coursesList = ref<any[]>([]);
 const examsList = ref<any[]>([]);
 const todosList = ref<any[]>([]);
 const isLoading = ref(false);
+const typeColors = ref<Record<string, string>>({
+  course: "#3b82f6",
+  exam: "#f59e0b",
+  todo: "#10b981",
+  default: "#94a3b8",
+});
+
+function readCssVar(name: string, fallback: string) {
+  if (typeof window === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function syncTypeColors() {
+  typeColors.value = {
+    course: readCssVar("--accent-blue", "#3b82f6"),
+    exam: readCssVar("--accent-amber", "#f59e0b"),
+    todo: readCssVar("--accent-green", "#10b981"),
+    default: readCssVar("--text-muted", "#94a3b8"),
+  };
+}
 
 async function loadData() {
   if (coursesList.value.length > 0) return; // already loaded
@@ -108,6 +129,7 @@ function handleKeydown(e: KeyboardEvent) {
 function toggleSearch() {
   isVisible.value = !isVisible.value;
   if (isVisible.value) {
+    syncTypeColors();
     searchQuery.value = '';
     selectedIndex.value = -1;
     loadData();
@@ -140,6 +162,7 @@ function onItemSelect(item: any) {
 }
 
 onMounted(() => {
+  syncTypeColors();
   window.addEventListener('keydown', handleKeydown);
   // Optional: Expose toggle globally to be called from MainLayout buttons
   (window as any).__toggleGlobalSearch = toggleSearch;
@@ -159,10 +182,18 @@ const getIcon = (type: string) => {
 
 // Color mapping helper
 const getColor = (type: string) => {
-  if (type === 'course') return '#3b82f6'; // blue
-  if (type === 'exam') return '#f59e0b'; // orange
-  if (type === 'todo') return '#10b981'; // green
-  return '#94a3b8';
+  if (type === 'course') return typeColors.value.course;
+  if (type === 'exam') return typeColors.value.exam;
+  if (type === 'todo') return typeColors.value.todo;
+  return typeColors.value.default;
+};
+
+const getIconStyle = (type: string) => {
+  const color = getColor(type);
+  return {
+    color,
+    background: `${color}22`,
+  };
 };
 </script>
 
@@ -196,7 +227,7 @@ const getColor = (type: string) => {
           @click="onItemSelect(item)"
           @mouseenter="selectedIndex = idx"
         >
-          <div class="item-icon" :style="{ color: getColor(item.type), background: getColor(item.type) + '22' }">
+          <div class="item-icon" :style="getIconStyle(item.type)">
              <component :is="getIcon(item.type)" :size="18"/>
           </div>
           <div class="item-content">
@@ -214,9 +245,24 @@ const getColor = (type: string) => {
 
 <style scoped>
 .search-overlay {
+  --search-overlay-bg: rgba(0, 0, 0, 0.4);
+  --search-modal-bg: rgba(30, 41, 59, 0.9);
+  --search-modal-border: rgba(255, 255, 255, 0.15);
+  --search-modal-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  --search-header-border: rgba(255, 255, 255, 0.08);
+  --search-icon: #94a3b8;
+  --search-text: #f8fafc;
+  --search-placeholder: #64748b;
+  --search-kbd-bg: rgba(255, 255, 255, 0.1);
+  --search-kbd-border: rgba(255, 255, 255, 0.1);
+  --search-muted: #94a3b8;
+  --search-selected-bg: rgba(255, 255, 255, 0.08);
+  --search-success: var(--accent-green);
+  --search-loader: var(--accent-blue);
+
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--search-overlay-bg);
   backdrop-filter: blur(4px);
   z-index: 99999;
   display: flex;
@@ -228,10 +274,10 @@ const getColor = (type: string) => {
 .search-modal {
   width: 90%;
   max-width: 600px;
-  background: rgba(30, 41, 59, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--search-modal-bg);
+  border: 1px solid var(--search-modal-border);
   border-radius: 16px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--search-modal-shadow);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -241,12 +287,12 @@ const getColor = (type: string) => {
   display: flex;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--search-header-border);
   gap: 12px;
 }
 
 .search-icon {
-  color: #94a3b8;
+  color: var(--search-icon);
 }
 
 .search-input {
@@ -254,20 +300,20 @@ const getColor = (type: string) => {
   background: transparent;
   border: none;
   font-size: 1.1rem;
-  color: #f8fafc;
+  color: var(--search-text);
   outline: none;
 }
 .search-input::placeholder {
-  color: #64748b;
+  color: var(--search-placeholder);
 }
 
 .esc-kbd {
   font-size: 0.7rem;
-  color: #94a3b8;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--search-muted);
+  background: var(--search-kbd-bg);
   padding: 2px 6px;
   border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--search-kbd-border);
   font-family: monospace;
 }
 
@@ -280,7 +326,7 @@ const getColor = (type: string) => {
 .no-results {
   padding: 30px;
   text-align: center;
-  color: #94a3b8;
+  color: var(--search-muted);
   font-size: 0.95rem;
 }
 
@@ -295,7 +341,7 @@ const getColor = (type: string) => {
 }
 
 .result-item.selected {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--search-selected-bg);
 }
 
 .item-icon {
@@ -314,7 +360,7 @@ const getColor = (type: string) => {
 
 .item-title {
   font-size: 1rem;
-  color: #f8fafc;
+  color: var(--search-text);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -323,7 +369,7 @@ const getColor = (type: string) => {
 
 .item-subtitle {
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: var(--search-muted);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -334,7 +380,7 @@ const getColor = (type: string) => {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
   font-size: 1.1rem;
-  color: #22c55e;
+  color: var(--search-success);
 }
 
 @keyframes spin {
@@ -343,30 +389,25 @@ const getColor = (type: string) => {
 .loader {
   width: 16px; height: 16px;
   border: 2px solid transparent;
-  border-top-color: #38bdf8;
+  border-top-color: var(--search-loader);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
-/* Light Mode Overrides */
-:global(.light-theme) .search-modal {
-  background: rgba(255, 255, 255, 0.98);
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+:global(.light-theme) .search-overlay {
+  --search-modal-bg: rgba(255, 255, 255, 0.98);
+  --search-modal-border: rgba(0, 0, 0, 0.08);
+  --search-modal-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+  --search-header-border: rgba(0, 0, 0, 0.05);
+  --search-text: #0f172a;
+  --search-placeholder: #94a3b8;
+  --search-muted: #64748b;
+  --search-selected-bg: rgba(0, 0, 0, 0.04);
+  --search-kbd-bg: #f8fafc;
+  --search-kbd-border: #cbd5e1;
 }
-:global(.light-theme) .search-header {
-  border-bottom-color: rgba(0, 0, 0, 0.05);
-}
-:global(.light-theme) .search-input { color: #1e293b; }
-:global(.light-theme) .search-input::placeholder { color: #94a3b8; }
-:global(.light-theme) .item-title { color: #0f172a; }
-:global(.light-theme) .item-subtitle { color: #475569; }
-:global(.light-theme) .no-results { color: #64748b; }
-:global(.light-theme) .result-item.selected { background: rgba(0, 0, 0, 0.04); }
-:global(.light-theme) .esc-kbd { 
-  background: #f8fafc; 
-  color: #64748b; 
-  border-color: #cbd5e1; 
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+
+:global(.light-theme) .esc-kbd {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 </style>
