@@ -4,6 +4,13 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRange, Download } from "lucide-vue-next";
 import { fetchScholarData, fetchTimetable as fetchTimetableApi, fetchTodos } from "../../services/api";
+import {
+  buildXkkhPrefix,
+  normalizeAcademicSemesterCode,
+  parseAcademicTermFromSemesterName,
+  resolveCurrentTimetableTerm,
+  toTimetableTerm,
+} from "../../utils/semester";
 
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 // ZJU 标准 12 节课时间表 (每节独立)
@@ -145,15 +152,15 @@ const currentWeek = ref(getRealCurrentWeek());
 
 // Semester info display
 const semesterLabel = computed(() => {
-  const now = new Date();
-  const month = now.getMonth() + 1;
-  const year = now.getFullYear();
-  if (month >= 2 && month <= 8) {
-    return `${year - 1}-${year} 春夏学期`;
-  } else {
-    const startYear = month === 1 ? year - 1 : year;
-    return `${startYear}-${startYear + 1} 秋冬学期`;
+  const activeTab = semesterTabs.value[activeSemIdx.value];
+  if (activeTab?.label) {
+    return activeTab.label;
   }
+  const term = resolveCurrentTimetableTerm();
+  const parsedYear = Number.parseInt(term.year, 10);
+  const nextYear = Number.isFinite(parsedYear) ? String(parsedYear + 1) : term.year;
+  const semText = term.academicSemester === '2' ? '春夏' : '秋冬';
+  return `${term.year}-${nextYear} ${semText}学期`;
 });
 
 const semesterStartDateStr = computed(() => {
@@ -373,43 +380,44 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
   isLoading.value = true;
 
   try {
-    let zjuYearStr = overrideYear || '';
-    let zjuSemStr = overrideSem || '';
-
-    if (!zjuYearStr || !zjuSemStr) {
-      const now = new Date();
-      const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth() + 1;
-      if (currentMonth >= 2 && currentMonth <= 8) {
-        zjuYearStr = (currentYear - 1).toString();
-        zjuSemStr = "12";
-      } else {
-        zjuYearStr = (currentMonth === 1 ? currentYear - 1 : currentYear).toString();
-        zjuSemStr = "3";
-      }
-    }
+    const defaultTerm = resolveCurrentTimetableTerm();
+    const zjuYearStr = overrideYear || defaultTerm.year;
+    const zjuSemStr = overrideSem || defaultTerm.timetableSemester;
 
     const response = await fetchTimetableApi({ year: zjuYearStr, semester: zjuSemStr });
+    const responseYear = String(response.data.year || zjuYearStr);
+    const responseAcademicSem =
+      normalizeAcademicSemesterCode(response.data.semester || zjuSemStr) ||
+      normalizeAcademicSemesterCode(zjuSemStr) ||
+      '1';
+    const responseTerm = toTimetableTerm({
+      year: responseYear,
+      academicSemester: responseAcademicSem,
+    });
     
     // Auto-update metadata and class hours
     fetchScholarData().then((sr) => {
       const data: any = sr.data;
       if (data.semesters && data.semesters.length > 0) {
-         const newTabs = data.semesters.map((s: any) => {
-            const label = formatSemesterName(s.name);
-            const academicYear = s.name.substring(0, 4);
-            const semCode = s.name.split('-').pop();
-            // Unified mapping: 1 (Autumn) -> xqm 2? Or follow xqm=3?
-            // Let's use robust mapping: 秋冬(1) -> 3, 春夏(2) -> 12
-            let xqm = "3";
-            if (semCode === '1') xqm = "3";
-            else if (semCode === '2') xqm = "12";
-            return { label, year: academicYear, sem: xqm, originalCode: semCode };
-         });
+         const newTabs = data.semesters
+           .map((s: any) => {
+             const term = parseAcademicTermFromSemesterName(String(s.name || ''));
+             if (!term) return null;
+             const timetableTerm = toTimetableTerm(term);
+             return {
+               label: formatSemesterName(s.name),
+               year: timetableTerm.year,
+               sem: timetableTerm.timetableSemester,
+               academicSem: timetableTerm.academicSemester,
+             };
+           })
+           .filter(Boolean) as any[];
          semesterTabs.value = newTabs;
          
          // Select best matching tab
-         const foundIdx = newTabs.findIndex((t: any) => t.year === zjuYearStr && t.sem === zjuSemStr);
+         const foundIdx = newTabs.findIndex(
+           (t: any) => t.year === responseTerm.year && t.sem === responseTerm.timetableSemester
+         );
          if (foundIdx !== -1) activeSemIdx.value = foundIdx;
       }
     });
@@ -435,7 +443,7 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
     const courseColors: Record<string, string> = {};
 
     // 严谨的防跨学期防串台机制：通过 xkkh 字段过滤
-    const targetXkkhPrefix = `(${zjuYearStr}-${parseInt(zjuYearStr) + 1}-${zjuSemStr === '12' ? '2' : '1'})`;
+    const targetXkkhPrefix = buildXkkhPrefix(responseTerm.year, responseTerm.academicSemester);
     console.log('[CalendarView] Target xkkh Prefix:', targetXkkhPrefix);
 
     data.forEach((session: any) => {
@@ -700,7 +708,7 @@ onMounted(() => {
         </button>
       </div>
       <div class="class-hours-badge glass-panel" v-if="semesterTabs.length">
-        <span class="badge-title">{{ (semesterTabs[activeSemIdx]?.label || '').includes('2') || (semesterTabs[activeSemIdx]?.label || '').includes('春夏') ? '春/夏' : '秋/冬' }}学期课时</span>
+        <span class="badge-title">{{ semesterTabs[activeSemIdx]?.academicSem === '2' ? '春/夏' : '秋/冬' }}学期课时</span>
         <span class="badge-value">{{ classHoursStats.perTwoWeeks }} <span class="badge-unit">节 / 两周</span></span>
       </div>
     </div>

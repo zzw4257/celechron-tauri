@@ -53,7 +53,8 @@ export interface ScholarPayload {
 export interface TimetablePayload {
   timetable: any[];
   year?: string;
-  semester?: string;
+  semester?: '1' | '2';
+  xqm?: '3' | '12';
 }
 
 export interface TodosPayload {

@@ -2,6 +2,7 @@
 import { ref, onMounted } from "vue";
 import { LiquidGlass } from '@wxperia/liquid-glass-vue';
 import { fetchTimetable, fetchTodos } from "../../services/api";
+import { resolveCurrentTimetableTerm } from "../../utils/semester";
 
 interface FlowItem {
   id: string;
@@ -70,25 +71,9 @@ async function loadFlow() {
       }
     });
 
-    // Determine current semester — match CalendarView and backend format
-    // Backend expects: year = "2025" (xnm), semester = "12" (xqm for 春夏) or "3" (秋冬)
-    const now = new Date();
-    const month = now.getMonth() + 1;
-    const year = now.getFullYear();
-    let zjuYearStr = '';
-    let zjuSemStr = '';
-    
-    if (month >= 2 && month <= 8) {
-      zjuYearStr = (year - 1).toString(); // e.g., Feb 2026 → xnm=2025
-      zjuSemStr = "12"; // 春夏学期 xqm=12
-    } else {
-      if (month === 1) {
-        zjuYearStr = (year - 1).toString();
-      } else {
-        zjuYearStr = year.toString();
-      }
-      zjuSemStr = "3"; // 秋冬学期 xqm=3
-    }
+    const term = resolveCurrentTimetableTerm();
+    const zjuYearStr = term.year;
+    const zjuSemStr = term.timetableSemester;
 
     // 2. Fetch Timetable
     const timetableEnv = await fetchTimetable({ year: zjuYearStr, semester: zjuSemStr });

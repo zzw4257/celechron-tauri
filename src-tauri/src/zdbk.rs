@@ -156,7 +156,7 @@ pub async fn get_major_grades(state: &AppState) -> Result<Vec<Value>, String> {
 }
 
 /// Fetch timetable for a given academic year and semester.
-/// year: e.g. "2024" semester: "1" for 秋冬, "2" for 春夏
+/// year: e.g. "2024" semester uses xqm value ("3" for 秋冬, "12" for 春夏)
 pub async fn get_timetable(
     state: &AppState,
     year: &str,

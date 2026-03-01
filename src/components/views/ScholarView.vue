@@ -16,18 +16,6 @@ const { isLightMode } = useTheme();
 const isLoading = ref(true);
 const errorMsg = ref("");
 
-// State variables
-const gpa = ref({
-  fivePoint: 0,
-  fourPoint: 0,
-  fourPointLegacy: 0,
-  hundredPoint: 0,
-  totalCredits: 0,
-  majorGpa: 0,
-  majorGpaLegacy: 0,
-  majorCredits: 0,
-});
-
 const semester = ref({
   name: "获取中...",
   courseCount: 0,
@@ -96,145 +84,9 @@ onMounted(() => {
   });
 });
 
-const overallGpa = computed(() => {
-  let totalEarnedCredits = 0;
-  let gpaCredits = 0;
-  let weightedFive = 0;
-  let weightedFour = 0;
-  let weightedLegacy = 0;
-  let weightedHundred = 0;
-  let majorEarnedCredits = 0;
-  let majorGpaCredits = 0;
-  let majorWeightedFour = 0;
-  let majorWeightedLegacy = 0;
-
-  if (!semestersList.value) return { fivePoint: 0, fourPoint: 0, fourPointLegacy: 0, hundredPoint: 0, totalCredits: 0, majorGpa: 0, majorGpaLegacy: 0, majorCredits: 0 };
-
-  // Make it reactive to settings changes
-  settingsKey.value;
-  const policy = getRetakePolicy();
-  
-  // Flatten all grades with their semester index to keep chronological order
-  const allFlattened: {g: any, semIdx: number}[] = [];
-  semestersList.value.forEach((sem, idx) => {
-    sem.grades.forEach((g: any) => {
-      allFlattened.push({g, semIdx: idx});
-    });
-  });
-
-  // Group by course code or name to detect retakes
-  const courseGroups = new Map<string, any[]>();
-  allFlattened.forEach(({g, semIdx}) => {
-     const key = g.kcdm || g.kcmc || g.xkkh;
-     if (!courseGroups.has(key)) courseGroups.set(key, []);
-     g._semIdx = semIdx;
-     courseGroups.get(key)!.push(g);
-  });
-
-  const validGrades: any[] = [];
-  courseGroups.forEach((grades) => {
-     if (grades.length === 1) {
-       validGrades.push(grades[0]);
-     } else {
-       if (policy === 'highest') {
-         // Sort descending by fivePoint
-         grades.sort((a, b) => (b.fivePoint || 0) - (a.fivePoint || 0));
-         validGrades.push(grades[0]);
-       } else {
-         // 'first' attempt. Sort ascending by semIdx (assuming 0 is earliest semester).
-         // If semestersList is returned newest-first, then higher idx = older semester.
-         // Usually ZJU transcript is earliest first, so lower idx = older. 
-         grades.sort((a, b) => a._semIdx - b._semIdx);
-         validGrades.push(grades[0]);
-       }
-     }
-  });
-
-  validGrades.forEach((g: any) => {
-      let credit = g.credit || g.xf || 0;
-      let fiveP = g.fivePoint || 0;
-      let fourP = g.fourPoint || 0;
-      let legacyP = g.fourPointLegacy || 0;
-      let hundredP = g.hundredPoint || 0;
-      let cj = g.cj?.toString().trim() || "";
-
-      if (cj === "优秀" && hundredP === 0) hundredP = 89;
-      else if (cj === "良好" && hundredP === 0) hundredP = 79;
-      else if (cj === "中等" && hundredP === 0) hundredP = 69;
-      else if (cj === "及格" && hundredP === 0) hundredP = 60;
-      else if (cj === "不及格" && hundredP === 0) hundredP = 50;
-
-      let earnsCredit = false;
-      let countsForGpa = false;
-
-      const isLetterGrade = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D"].includes(cj);
-      const isLevelGrade = ["不及格", "F", "及格", "中等", "良好", "优秀"].includes(cj);
-      const isNumericGrade = !isNaN(parseFloat(cj));
-
-      if (["待录", "缓考", "无效"].includes(cj)) {
-        return;
-      } else if (["不及格", "F"].includes(cj)) {
-        earnsCredit = false;
-        countsForGpa = true;
-      } else if (["弃修"].includes(cj)) {
-        earnsCredit = false;
-        countsForGpa = false;
-      } else if (isLetterGrade) {
-        earnsCredit = true;
-        countsForGpa = true;
-      } else if (["合格", "免修", "免考"].includes(cj)) {
-        earnsCredit = true;
-        countsForGpa = false;
-      } else if (isNumericGrade) {
-        let numericVal = parseFloat(cj);
-        earnsCredit = numericVal >= 60;
-        countsForGpa = true;
-      } else if (isLevelGrade) {
-        earnsCredit = cj !== "不及格";
-        countsForGpa = true;
-      } else {
-        earnsCredit = false;
-        countsForGpa = false;
-      }
-
-      if (credit > 0) {
-        if (earnsCredit) {
-          totalEarnedCredits += credit;
-          if (majorCourseIds.value.has(g.xkkh)) majorEarnedCredits += credit;
-        }
-        if (countsForGpa) {
-          gpaCredits += credit;
-          weightedFive += credit * fiveP;
-          weightedFour += credit * fourP;
-          weightedLegacy += credit * legacyP;
-          weightedHundred += credit * hundredP;
-          if (majorCourseIds.value.has(g.xkkh)) {
-            majorGpaCredits += credit;
-            majorWeightedFour += credit * fourP;
-            majorWeightedLegacy += credit * legacyP;
-          }
-        }
-      }
-  });
-
-  return {
-    fivePoint: gpaCredits > 0 ? weightedFive / gpaCredits : 0,
-    fourPoint: gpaCredits > 0 ? weightedFour / gpaCredits : 0,
-    fourPointLegacy: gpaCredits > 0 ? weightedLegacy / gpaCredits : 0,
-    hundredPoint: gpaCredits > 0 ? weightedHundred / gpaCredits : 0,
-    totalCredits: totalEarnedCredits,
-    majorGpa: majorGpaCredits > 0 ? majorWeightedFour / majorGpaCredits : 0,
-    majorGpaLegacy: majorGpaCredits > 0 ? majorWeightedLegacy / majorGpaCredits : 0,
-    majorCredits: majorEarnedCredits
-  };
-});
-
 const displayGpa = computed(() => {
   const policy = activePolicy.value;
-  const byPolicy = gpaByPolicy.value[policy] || gpaByPolicy.value.first;
-  // Fallback to legacy frontend-computed result only when backend payload is absent.
-  if (!byPolicy) return overallGpa.value;
-  return byPolicy;
+  return gpaByPolicy.value[policy] || gpaByPolicy.value.first;
 });
 
 const gradeItems = [
@@ -254,30 +106,6 @@ const majorCourseIds = ref(new Set<string>());
 
 const simulatedScores = ref<Record<string, number>>({});
 
-function getGpaFallback(s: any, idx: number) {
-  if (s.gpaArr && s.gpaArr[idx] && s.gpaArr[idx] > 0) return s.gpaArr[idx];
-  let gpaC = 0, weightG = 0;
-  (s.grades || []).forEach((g: any) => {
-    let c = g.credit || g.xf || 0;
-    let val = idx === 0 ? (g.fivePoint || 0) : (g.fourPoint || 0);
-    let cj = g.cj?.toString().trim() || "";
-    let countsForGpa = false;
-    const isLetterGrade = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D"].includes(cj);
-    const isLevelGrade = ["不及格", "F", "及格", "中等", "良好", "优秀"].includes(cj);
-    const isNumericGrade = !isNaN(parseFloat(cj));
-    
-    if (isLetterGrade || isLevelGrade || isNumericGrade) {
-        countsForGpa = true;
-    }
-    
-    if (c > 0 && countsForGpa) {
-      gpaC += c;
-      weightG += c * val;
-    }
-  });
-  return gpaC > 0 ? weightG / gpaC : 0;
-}
-
 const semesterGpa = ref([0, 0]);
 
 const chartOption = computed(() => {
@@ -287,14 +115,12 @@ const chartOption = computed(() => {
   const xAxisData = semesters.map(s => s.name);
 
   const data5 = semesters.map(s => {
-    const semGpa = s.gpaByPolicy?.[policy]?.fivePoint;
-    const val = semGpa ?? getGpaFallback(s, 0);
-    return parseFloat(val.toFixed(2));
+    const val = s.gpaByPolicy?.[policy]?.fivePoint ?? s.gpaByPolicy?.first?.fivePoint ?? 0;
+    return parseFloat(Number(val).toFixed(2));
   });
   const data43 = semesters.map(s => {
-    const semGpa = s.gpaByPolicy?.[policy]?.fourPoint;
-    const val = semGpa ?? getGpaFallback(s, 1);
-    return parseFloat(val.toFixed(2));
+    const val = s.gpaByPolicy?.[policy]?.fourPoint ?? s.gpaByPolicy?.first?.fourPoint ?? 0;
+    return parseFloat(Number(val).toFixed(2));
   });
   
   const textColor = isLightMode.value ? '#475569' : '#cbd5e1';
@@ -365,142 +191,8 @@ const chartOption = computed(() => {
   };
 });
 
-function toFivePoint(score: number): number {
-  if (score >= 95) return 5.0;
-  if (score >= 90) return 4.5;
-  if (score >= 85) return 4.0;
-  if (score >= 80) return 3.5;
-  if (score >= 75) return 3.0;
-  if (score >= 70) return 2.5;
-  if (score >= 65) return 2.0;
-  if (score >= 60) return 1.5;
-  return 0.0;
-}
-function toFourPoint43(fiveP: number): number {
-  if (fiveP >= 5.0) return 4.3;
-  if (fiveP >= 4.5) return 4.0;
-  if (fiveP >= 4.0) return 3.7;
-  if (fiveP >= 3.5) return 3.3;
-  if (fiveP >= 3.0) return 3.0;
-  if (fiveP >= 2.5) return 2.7;
-  if (fiveP >= 2.0) return 2.3;
-  if (fiveP >= 1.5) return 2.0;
-  return 0.0;
-}
-function toFourPointLegacy(fiveP: number): number {
-  if (fiveP >= 4.0) return 4.0;
-  if (fiveP >= 3.0) return 3.0;
-  if (fiveP >= 2.0) return 2.0;
-  if (fiveP >= 1.5) return 1.5;
-  return 0.0;
-}
-
-const customGpa = computed(() => {
-  let totalEarnedCredits = 0;
-  let gpaCredits = 0;
-  let weightedFive = 0;
-  let weightedFour = 0;
-  let weightedLegacy = 0;
-  let weightedHundred = 0;
-  
-  let majorEarnedCredits = 0;
-  let majorGpaCredits = 0;
-  let majorWeightedFour = 0;
-  let majorWeightedLegacy = 0;
-  
-  if (!semestersList.value) return { fivePoint: 0, fourPoint: 0, fourPointLegacy: 0, hundredPoint: 0, totalCredits: 0, majorGpa: 0, majorGpaLegacy: 0, majorCredits: 0 };
-  
-  semestersList.value.forEach(sem => {
-    sem.grades.forEach((g: any) => {
-      // Only include if selected and it's a valid GPA course
-      if (customGpaSelected.value.has(g.xkkh)) {
-        let credit = g.credit || g.xf || 0;
-        let fiveP = g.fivePoint || 0;
-        let fourP = g.fourPoint || 0;
-        let legacyP = g.fourPointLegacy || 0;
-        let hundredP = g.hundredPoint || 0;
-        
-        let cj = g.cj?.toString().trim() || "";
-        
-        // Patch hundredPoint for specific text grades
-        if (cj === "优秀" && hundredP === 0) hundredP = 89;
-        else if (cj === "良好" && hundredP === 0) hundredP = 79;
-        else if (cj === "中等" && hundredP === 0) hundredP = 69;
-        else if (cj === "及格" && hundredP === 0) hundredP = 60;
-        else if (cj === "不及格" && hundredP === 0) hundredP = 50;
-
-        let earnsCredit = false;
-        let countsForGpa = false;
-
-        if (["待录", "缓考", "无效"].includes(cj)) {
-           if (simulatedScores.value[g.xkkh] !== undefined) {
-               hundredP = simulatedScores.value[g.xkkh] || 0;
-               fiveP = toFivePoint(hundredP);
-               fourP = toFourPoint43(fiveP);
-               legacyP = toFourPointLegacy(fiveP);
-               earnsCredit = hundredP >= 60;
-               countsForGpa = true;
-           } else {
-               countsForGpa = false;
-               earnsCredit = false;
-           }
-        } else if (["不及格", "F"].includes(cj)) {
-            earnsCredit = false;
-            countsForGpa = true;
-        } else if (["弃修"].includes(cj)) {
-            earnsCredit = false;
-            countsForGpa = false;
-        } else if (["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "合格", "免修", "免考"].includes(cj)) {
-            earnsCredit = true;
-            countsForGpa = false;
-        } else {
-            let numericVal = parseFloat(cj);
-            if (!isNaN(numericVal) && numericVal < 60) {
-               earnsCredit = false;
-               countsForGpa = true;
-            } else {
-               earnsCredit = true;
-               countsForGpa = true;
-            }
-        }
-
-        if (credit > 0) {
-            if (earnsCredit) {
-               totalEarnedCredits += credit;
-               if (majorCourseIds.value.has(g.xkkh)) majorEarnedCredits += credit;
-            }
-            if (countsForGpa) {
-               gpaCredits += credit;
-               weightedFive += credit * fiveP;
-               weightedFour += credit * fourP;
-               weightedLegacy += credit * legacyP;
-               weightedHundred += credit * hundredP;
-               
-               if (majorCourseIds.value.has(g.xkkh)) {
-                   majorGpaCredits += credit;
-                   majorWeightedFour += credit * fourP;
-                   majorWeightedLegacy += credit * legacyP;
-               }
-            }
-        }
-      }
-    });
-  });
-  
-  return {
-    fivePoint: gpaCredits > 0 ? weightedFive / gpaCredits : 0,
-    fourPoint: gpaCredits > 0 ? weightedFour / gpaCredits : 0,
-    fourPointLegacy: gpaCredits > 0 ? weightedLegacy / gpaCredits : 0,
-    hundredPoint: gpaCredits > 0 ? weightedHundred / gpaCredits : 0,
-    totalCredits: totalEarnedCredits,
-    majorGpa: majorGpaCredits > 0 ? majorWeightedFour / majorGpaCredits : 0,
-    majorGpaLegacy: majorGpaCredits > 0 ? majorWeightedLegacy / majorGpaCredits : 0,
-    majorCredits: majorEarnedCredits
-  };
-});
-
 const customGpaServer = ref<any>(null);
-const customGpaDisplay = computed(() => customGpaServer.value || customGpa.value);
+const customGpaDisplay = computed(() => customGpaServer.value || { ...EMPTY_GPA });
 
 async function refreshCustomGpaPreview() {
   if (!customGpaMode.value || semestersList.value.length === 0) return;
@@ -515,7 +207,6 @@ async function refreshCustomGpaPreview() {
     });
     customGpaServer.value = summary;
   } catch (err) {
-    // Keep local fallback when command fails.
     customGpaServer.value = null;
     console.warn('calculate_gpa_preview failed:', err);
   }
@@ -558,28 +249,12 @@ function selectSemester(index: number) {
   const items = semestersList.value[index];
   semester.value.name = items.name;
   semester.value.courseCount = items.grades.length;
-  // Calculate exact earned credits for the semester instead of relying on the API's sum which might include dropped courses
-  let earned = 0;
-  items.grades.forEach((g: any) => {
-     let cj = g.cj?.toString().trim() || "";
-     let credit = g.credit || g.xf || 0;
-     let isPass = false;
-     if (["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "合格", "免修", "免考", "及格", "中等", "良好", "优秀"].includes(cj)) {
-         isPass = true;
-     } else {
-         let numericVal = parseFloat(cj);
-         if (!isNaN(numericVal) && numericVal >= 60) {
-             isPass = true;
-         }
-     }
-     if (isPass) earned += credit;
-  });
-  semester.value.courseCredits = earned;
   const semPolicy = items?.gpaByPolicy?.[activePolicy.value] || items?.gpaByPolicy?.first;
+  semester.value.courseCredits = semPolicy?.totalCredits || 0;
   if (semPolicy) {
     semesterGpa.value = [semPolicy.fivePoint || 0, semPolicy.fourPoint || 0];
   } else {
-    semesterGpa.value = [getGpaFallback(items, 0), getGpaFallback(items, 1)];
+    semesterGpa.value = [0, 0];
   }
 }
 
@@ -652,8 +327,6 @@ async function fetchData() {
       first: data.gpa || { ...EMPTY_GPA },
       highest: data.gpa || { ...EMPTY_GPA },
     };
-
-    gpa.value = gpaByPolicy.value.first || { ...EMPTY_GPA };
 
     practice.value = {
       pt2: data.practice.pt2 || 0,

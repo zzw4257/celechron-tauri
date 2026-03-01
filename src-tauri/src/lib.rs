@@ -17,6 +17,21 @@ use tauri::Manager;
 use tauri::{AppHandle, State};
 use zjuam::AppState;
 
+fn normalize_academic_semester(semester: &str) -> Option<&'static str> {
+    match semester.trim() {
+        "1" | "3" => Some("1"),
+        "2" | "12" => Some("2"),
+        _ => None,
+    }
+}
+
+fn to_timetable_semester(academic_semester: &str) -> &'static str {
+    match academic_semester {
+        "2" => "12",
+        _ => "3",
+    }
+}
+
 #[tauri::command]
 async fn login_zju_command(
     state: State<'_, Arc<AppState>>,
@@ -143,14 +158,21 @@ async fn fetch_timetable(
     year: String,
     semester: String,
 ) -> Result<Value, String> {
-    let cache_name = format!("cache_timetable_{}_{}.json", year, semester);
-    match zdbk::get_timetable(&state, &year, &semester).await {
+    let academic_semester = normalize_academic_semester(&semester)
+        .ok_or_else(|| format!("不支持的学期参数: {}", semester))?;
+    let timetable_semester = to_timetable_semester(academic_semester);
+
+    let cache_name = format!("cache_timetable_{}_{}.json", year, academic_semester);
+    let legacy_cache_name = format!("cache_timetable_{}_{}.json", year, semester);
+
+    match zdbk::get_timetable(&state, &year, timetable_semester).await {
         Ok(arr) => {
             let env = envelope(
                 json!({
                     "timetable": arr,
                     "year": year,
-                    "semester": semester,
+                    "semester": academic_semester,
+                    "xqm": timetable_semester,
                 }),
                 "network",
             );
@@ -160,6 +182,11 @@ async fn fetch_timetable(
         Err(e) => {
             if let Some(cached) = cache_read_envelope(&app, &cache_name) {
                 return Ok(cached);
+            }
+            if legacy_cache_name != cache_name {
+                if let Some(cached) = cache_read_envelope(&app, &legacy_cache_name) {
+                    return Ok(cached);
+                }
             }
             Err(e)
         }
@@ -300,4 +327,30 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_academic_semester, to_timetable_semester};
+
+    #[test]
+    fn semester_aliases_are_normalized() {
+        assert_eq!(normalize_academic_semester("1"), Some("1"));
+        assert_eq!(normalize_academic_semester("3"), Some("1"));
+        assert_eq!(normalize_academic_semester("2"), Some("2"));
+        assert_eq!(normalize_academic_semester("12"), Some("2"));
+    }
+
+    #[test]
+    fn timetable_semester_mapping_is_stable() {
+        assert_eq!(to_timetable_semester("1"), "3");
+        assert_eq!(to_timetable_semester("2"), "12");
+    }
+
+    #[test]
+    fn invalid_semester_is_rejected() {
+        assert_eq!(normalize_academic_semester(""), None);
+        assert_eq!(normalize_academic_semester("0"), None);
+        assert_eq!(normalize_academic_semester("spring"), None);
+    }
 }

@@ -8,6 +8,7 @@ import type {
   TimetablePayload,
   TodosPayload,
 } from '../types/api';
+import { normalizeAcademicSemesterCode } from '../utils/semester';
 
 function fallbackMeta(): ApiMeta {
   return {
@@ -88,6 +89,11 @@ export async function fetchTimetable(args: {
     if (!Array.isArray(payload.timetable)) {
       payload.timetable = Array.isArray(payload.kbList) ? payload.kbList : [];
     }
+    payload.year = String(payload.year || args.year);
+    payload.semester =
+      normalizeAcademicSemesterCode(payload.semester || args.semester) ||
+      normalizeAcademicSemesterCode(args.semester) ||
+      '1';
     env.data = payload;
   }
 
