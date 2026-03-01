@@ -25,7 +25,7 @@ jobs:
         run: npm run release:sync-version
 
       - name: Build macOS package
-        run: npm run tauri build
+        run: npm run tauri -- build
 
       - name: Upload mac artifacts
         uses: actions/upload-artifact@v4
@@ -67,7 +67,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: npm run tauri android build --apk --aab
+        run: npm run tauri -- android build --apk --aab
 
       - name: Upload android artifacts
         uses: actions/upload-artifact@v4
@@ -102,7 +102,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_MOBILEPROVISION_BASE64: ${{ secrets.APPLE_MOBILEPROVISION_BASE64 }}
-        run: npm run tauri ios build
+        run: npm run tauri -- ios build
 
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4

@@ -14,6 +14,10 @@ function writeJson(p, data) {
 
 function replaceInFile(filePath, replacer) {
   const abs = path.join(ROOT, filePath);
+  if (!fs.existsSync(abs)) {
+    console.warn(`skip ${filePath} (not found)`);
+    return;
+  }
   const before = fs.readFileSync(abs, 'utf8');
   const after = replacer(before);
   if (after !== before) {
