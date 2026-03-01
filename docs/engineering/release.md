@@ -22,11 +22,15 @@ npm run release:sync-version
 ```bash
 npm run release:mac
 npm run release:android
+npm run build:android:debug
 npm run release:ios
 npm run release:all
 ```
 
 策略：自动出包，人工上传商店。
+
+- `release:android`：上架包（APK + AAB），要求 release 签名环境变量。
+- `build:android:debug`：测试包（debug 签名，仅 APK），不要求 release 签名环境变量。
 
 ## 2. Android 签名
 

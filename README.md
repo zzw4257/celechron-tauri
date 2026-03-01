@@ -82,6 +82,9 @@ npm run release:mac
 # 构建 Android 包 (apk + aab)
 npm run release:android
 
+# 构建 Android 测试包 (debug 签名，仅 APK)
+npm run build:android:debug
+
 # 构建 iOS 包
 npm run release:ios
 ```
@@ -89,6 +92,13 @@ npm run release:ios
 统一三端构建：`npm run release:all`
 
 版本同步：`npm run release:sync-version`
+
+Android 本地 release 打包需要以下环境变量（缺失会被阻断）：
+
+- `ANDROID_KEYSTORE_PATH`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
 
 ## ✅ Quality Gates
 

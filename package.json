@@ -14,9 +14,11 @@
     "check:colors": "node scripts/check-colors.mjs",
     "check": "npm run build && npm run check:colors && npm run cargo:check",
     "release:sync-version": "node scripts/sync-version.mjs",
+    "android:patch-signing": "node scripts/patch-android-signing.mjs",
+    "build:android:debug": "npm run release:sync-version && npm run android:patch-signing && npm run tauri -- android build --debug --apk",
     "release:mac": "npm run release:sync-version && npm run tauri build",
-    "release:android": "npm run release:sync-version && npm run tauri android build --apk --aab",
-    "release:ios": "npm run release:sync-version && npm run tauri ios build",
+    "release:android": "npm run release:sync-version && npm run android:patch-signing && npm run tauri -- android build --apk --aab",
+    "release:ios": "npm run release:sync-version && npm run tauri -- ios build",
     "release:all": "npm run release:mac && npm run release:android && npm run release:ios",
     "prepare": "husky"
   },
