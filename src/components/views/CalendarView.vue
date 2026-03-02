@@ -11,6 +11,7 @@ import {
   resolveCurrentTimetableTerm,
   toTimetableTerm,
 } from "../../utils/semester";
+const isDev = import.meta.env.DEV;
 
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 // ZJU 标准 12 节课时间表 (每节独立)
@@ -82,6 +83,20 @@ const totalWeeks = ref(18);
 const isLoading = ref(true);
 const isOffline = ref(false);
 const offlineTime = ref("");
+const timetableDebug = ref({
+  requestYear: "",
+  requestSem: "",
+  responseYear: "",
+  responseSem: "",
+  responseXqm: "",
+  metaSource: "",
+  metaTime: "",
+  targetPrefix: "",
+  rawCount: 0,
+  targetMatchedRawCount: 0,
+  filteredCount: 0,
+  prefixTop: [] as Array<{ prefix: string; count: number }>,
+});
 
 // 课时统计 (class hours per 2 weeks)
 const classHoursStats = computed(() => {
@@ -423,6 +438,9 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
     });
 
     const data: any[] = response.data.timetable || [];
+    const prefixCounter: Record<string, number> = {};
+    let targetMatchedRawCount = 0;
+    let filteredCount = 0;
 
     if (response._meta && response._meta.source === "cache") {
       isOffline.value = true;
@@ -447,12 +465,18 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
     console.log('[CalendarView] Target xkkh Prefix:', targetXkkhPrefix);
 
     data.forEach((session: any) => {
+      const xkkh = (session.xkkh || '').trim();
+      const prefix = extractXkkhPrefix(xkkh);
+      prefixCounter[prefix] = (prefixCounter[prefix] || 0) + 1;
+      if (xkkh.startsWith(targetXkkhPrefix)) {
+        targetMatchedRawCount++;
+      }
+
       // Skip graduate courses — same as Flutter: sfyjskc !== "1"
       if (session.sfyjskc === '1') return;
       
       // CRITICAL BUG FIX: The ZJU API frequently ignores xnm/xqm and returns courses 
       // from multiple past & future semesters. We MUST strictly match the target xkkh prefix.
-      const xkkh = (session.xkkh || '').trim();
       if (!xkkh.startsWith(targetXkkhPrefix)) return;
 
       const kcb: string = session.kcb || '';
@@ -541,6 +565,7 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
 
       const periodIdx = startPeriod - 1;
       if (periodIdx >= 0 && periodIdx < 13) {
+        filteredCount++;
         allCourses.value.push({
           name,
           location: loc,
@@ -554,6 +579,27 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
         });
       }
     });
+
+    const top = Object.entries(prefixCounter)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([prefix, count]) => ({ prefix, count }));
+    timetableDebug.value = {
+      requestYear: zjuYearStr,
+      requestSem: zjuSemStr,
+      responseYear: responseTerm.year,
+      responseSem: responseTerm.academicSemester,
+      responseXqm: response.data.xqm || "",
+      metaSource: response._meta?.source || "unknown",
+      metaTime: response._meta?.timestamp
+        ? new Date(response._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false })
+        : "N/A",
+      targetPrefix: targetXkkhPrefix,
+      rawCount: data.length,
+      targetMatchedRawCount,
+      filteredCount,
+      prefixTop: top,
+    };
 
   } catch (e) {
     console.error("Failed to fetch timetable:", e);
@@ -578,6 +624,13 @@ function formatWeekRanges(weeks: number[]): string {
   }
   ranges.push(start === end ? `${start}` : `${start}-${end}`);
   return '第 ' + ranges.join(', ') + ' 周';
+}
+
+function extractXkkhPrefix(xkkh: string) {
+  if (!xkkh.startsWith('(')) return "UNKNOWN";
+  const end = xkkh.indexOf(')');
+  if (end <= 0) return "UNKNOWN";
+  return xkkh.slice(0, end + 1);
 }
 
 // --- iCal Export ---
@@ -736,6 +789,31 @@ onMounted(() => {
         当前显示的是缓存在本地的数据 (更新于: {{ offlineTime }})
       </div>
     </div>
+
+    <section v-if="isDev" class="debug-panel glass-panel">
+      <h3>开发诊断 · 课表学期/过滤</h3>
+      <div class="debug-grid">
+        <div class="debug-item"><span>请求学年</span><strong>{{ timetableDebug.requestYear }}</strong></div>
+        <div class="debug-item"><span>请求学期参数</span><strong>{{ timetableDebug.requestSem }}</strong></div>
+        <div class="debug-item"><span>返回学年</span><strong>{{ timetableDebug.responseYear }}</strong></div>
+        <div class="debug-item"><span>返回学期(1/2)</span><strong>{{ timetableDebug.responseSem }}</strong></div>
+        <div class="debug-item"><span>返回 xqm</span><strong>{{ timetableDebug.responseXqm || 'N/A' }}</strong></div>
+        <div class="debug-item"><span>数据源</span><strong>{{ timetableDebug.metaSource }}</strong></div>
+      </div>
+      <div class="debug-grid">
+        <div class="debug-item"><span>元数据时间</span><strong>{{ timetableDebug.metaTime }}</strong></div>
+        <div class="debug-item"><span>目标前缀</span><strong>{{ timetableDebug.targetPrefix }}</strong></div>
+        <div class="debug-item"><span>原始条数</span><strong>{{ timetableDebug.rawCount }}</strong></div>
+        <div class="debug-item"><span>目标前缀命中</span><strong>{{ timetableDebug.targetMatchedRawCount }}</strong></div>
+        <div class="debug-item"><span>过滤后渲染</span><strong>{{ timetableDebug.filteredCount }}</strong></div>
+      </div>
+      <div class="debug-rows">
+        <div class="debug-row debug-head"><span>xkkh 前缀</span><span>出现次数</span></div>
+        <div class="debug-row" v-for="row in timetableDebug.prefixTop" :key="row.prefix">
+          <span>{{ row.prefix }}</span><span>{{ row.count }}</span>
+        </div>
+      </div>
+    </section>
 
     <!-- Today's summary -->
     <section class="today-summary" v-if="todayCourses.length">
@@ -921,6 +999,71 @@ onMounted(() => {
   max-width: 950px;
   margin: 0 auto;
   color: #fff;
+}
+.debug-panel {
+  margin-bottom: 1rem;
+  padding: 14px;
+  border: 1px solid var(--debug-border, rgba(244, 63, 94, 0.32));
+  background: var(--debug-panel-bg, rgba(15, 23, 42, 0.48));
+}
+.debug-panel h3 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  color: var(--debug-title, #fda4af);
+}
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.debug-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--debug-item-border, rgba(148, 163, 184, 0.22));
+  background: var(--debug-item-bg, rgba(30, 41, 59, 0.55));
+  font-size: 0.8rem;
+}
+.debug-item span {
+  color: var(--text-muted, #94a3b8);
+}
+.debug-item strong {
+  color: var(--text-main, #f8fafc);
+  font-variant-numeric: tabular-nums;
+}
+.debug-rows {
+  border: 1px solid var(--debug-rows-border, rgba(148, 163, 184, 0.24));
+  border-radius: 8px;
+  overflow: hidden;
+}
+.debug-row {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr;
+  gap: 8px;
+  padding: 7px 8px;
+  border-top: 1px solid var(--debug-row-border, rgba(148, 163, 184, 0.18));
+  font-size: 0.8rem;
+}
+.debug-row:first-child {
+  border-top: none;
+}
+.debug-row span {
+  color: var(--text-main, #e2e8f0);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.debug-head {
+  background: var(--debug-head-bg, rgba(30, 41, 59, 0.85));
+}
+.debug-head span {
+  color: var(--text-muted, #94a3b8);
+  font-weight: 700;
 }
 .cal-header {
   display: flex;
@@ -1719,6 +1862,7 @@ onMounted(() => {
   .month-grid { gap: 4px; padding: 1rem; }
   .month-cell { border-radius: 8px; }
   .month-day-num { font-size: 0.95rem; }
+  .debug-grid { grid-template-columns: 1fr; }
 }
 
 /* ═══════════════════════════════════════════════════════ */
@@ -1745,6 +1889,9 @@ onMounted(() => {
   }
   .month-label-large {
     font-size: 1.3rem;
+  }
+  .debug-grid {
+    grid-template-columns: 1fr;
   }
 
   /* Grid: remove min-width, show 5 days only */

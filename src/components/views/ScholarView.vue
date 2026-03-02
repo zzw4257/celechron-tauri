@@ -12,6 +12,7 @@ import { calculateGpaPreview, fetchScholarData, fetchTodos } from "../../service
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, TitleComponent, LegendComponent]);
 
 const { isLightMode } = useTheme();
+const isDev = import.meta.env.DEV;
 
 const isLoading = ref(true);
 const errorMsg = ref("");
@@ -56,6 +57,7 @@ const gpaByPolicy = ref({
   first: { ...EMPTY_GPA },
   highest: { ...EMPTY_GPA },
 });
+const scholarMeta = ref({ source: "unknown", timestamp: 0 });
 
 function getRetakePolicy(): 'first' | 'highest' {
   const policy = localStorage.getItem('retakePolicy');
@@ -88,6 +90,23 @@ const displayGpa = computed(() => {
   const policy = activePolicy.value;
   return gpaByPolicy.value[policy] || gpaByPolicy.value.first;
 });
+
+const debugSemesterRows = computed(() =>
+  semestersList.value.map((sem: any) => ({
+    name: sem.name,
+    courseCount: sem.grades?.length || 0,
+    firstFive: Number(sem.gpaByPolicy?.first?.fivePoint || 0),
+    highestFive: Number(sem.gpaByPolicy?.highest?.fivePoint || 0),
+    firstCredits: Number(sem.gpaByPolicy?.first?.totalCredits || 0),
+    highestCredits: Number(sem.gpaByPolicy?.highest?.totalCredits || 0),
+  }))
+);
+
+const scholarMetaTime = computed(() =>
+  scholarMeta.value.timestamp > 0
+    ? new Date(scholarMeta.value.timestamp * 1000).toLocaleString('zh-CN', { hour12: false })
+    : 'N/A'
+);
 
 const gradeItems = [
   { label: "五分制", value: () => hideGpa.value ? '****' : displayGpa.value.fivePoint.toFixed(2), color: "#06b6d4" },
@@ -322,6 +341,7 @@ async function fetchData() {
     } else {
       isOffline.value = false;
     }
+    scholarMeta.value = scholarEnv._meta || { source: "unknown", timestamp: 0 };
 
     gpaByPolicy.value = data.gpaByPolicy || {
       first: data.gpa || { ...EMPTY_GPA },
@@ -495,6 +515,37 @@ onMounted(() => {
         当前显示的是缓存在本地的数据 (更新于: {{ offlineTime }})
       </div>
     </div>
+
+    <section v-if="isDev" class="section-card debug-panel">
+      <div class="section-header">
+        <span class="section-title">开发诊断 · GPA/学期</span>
+      </div>
+      <div class="debug-grid">
+        <div class="debug-item"><span>数据源</span><strong>{{ scholarMeta.source }}</strong></div>
+        <div class="debug-item"><span>时间</span><strong>{{ scholarMetaTime }}</strong></div>
+        <div class="debug-item"><span>重修策略</span><strong>{{ activePolicy }}</strong></div>
+        <div class="debug-item"><span>学期数量</span><strong>{{ semestersList.length }}</strong></div>
+        <div class="debug-item"><span>总成绩条数</span><strong>{{ semestersList.reduce((n, s) => n + (s.grades?.length || 0), 0) }}</strong></div>
+      </div>
+      <div class="debug-grid">
+        <div class="debug-item"><span>总 GPA(first)</span><strong>{{ gpaByPolicy.first.fivePoint.toFixed(4) }}</strong></div>
+        <div class="debug-item"><span>总 GPA(highest)</span><strong>{{ gpaByPolicy.highest.fivePoint.toFixed(4) }}</strong></div>
+        <div class="debug-item"><span>显示 GPA(当前)</span><strong>{{ displayGpa.fivePoint.toFixed(4) }}</strong></div>
+      </div>
+      <div class="debug-rows">
+        <div class="debug-row debug-row-head">
+          <span>学期</span><span>课程数</span><span>first 五分</span><span>highest 五分</span><span>first 学分</span><span>highest 学分</span>
+        </div>
+        <div class="debug-row" v-for="row in debugSemesterRows" :key="row.name">
+          <span>{{ row.name }}</span>
+          <span>{{ row.courseCount }}</span>
+          <span>{{ row.firstFive.toFixed(4) }}</span>
+          <span>{{ row.highestFive.toFixed(4) }}</span>
+          <span>{{ row.firstCredits.toFixed(1) }}</span>
+          <span>{{ row.highestCredits.toFixed(1) }}</span>
+        </div>
+      </div>
+    </section>
 
     <!-- Grade Brief Section -->
     <section class="section-card">
@@ -797,6 +848,63 @@ onMounted(() => {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0,0,0,0.25);
 }
+.debug-panel {
+  border-color: var(--debug-border, rgba(244, 63, 94, 0.35));
+}
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.debug-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--debug-item-bg, rgba(15, 23, 42, 0.45));
+  border: 1px solid var(--debug-item-border, rgba(148, 163, 184, 0.2));
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+.debug-item span {
+  color: var(--text-muted, #94a3b8);
+}
+.debug-item strong {
+  color: var(--text-main, #f8fafc);
+  font-variant-numeric: tabular-nums;
+}
+.debug-rows {
+  border: 1px solid var(--debug-rows-border, rgba(148, 163, 184, 0.25));
+  border-radius: 10px;
+  overflow: hidden;
+}
+.debug-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  border-top: 1px solid var(--debug-row-border, rgba(148, 163, 184, 0.16));
+}
+.debug-row:first-child {
+  border-top: none;
+}
+.debug-row span {
+  color: var(--text-main, #e2e8f0);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.debug-row-head {
+  background: var(--debug-head-bg, rgba(30, 41, 59, 0.8));
+}
+.debug-row-head span {
+  color: var(--text-muted, #94a3b8);
+  font-weight: 700;
+}
 
 .section-header {
   display: flex;
@@ -952,6 +1060,9 @@ onMounted(() => {
   .scholar-view { padding: 1rem 1rem 6rem; }
   .grade-grid { grid-template-columns: repeat(2, 1fr); }
   .stats-row { flex-wrap: wrap; gap: 10px; }
+  .debug-grid { grid-template-columns: 1fr; }
+  .debug-row { grid-template-columns: 1.8fr 1fr 1fr; }
+  .debug-row span:nth-child(n + 4) { display: none; }
 }
 
 @media (max-width: 768px) {
@@ -988,6 +1099,9 @@ onMounted(() => {
 
   /* Todo cards */
   .todo-card { padding: 8px 10px; }
+  .debug-grid { grid-template-columns: 1fr; }
+  .debug-row { grid-template-columns: 1.8fr 1fr 1fr; }
+  .debug-row span:nth-child(n + 4) { display: none; }
 }
 
 .semester-scroll-nav {
