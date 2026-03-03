@@ -5,7 +5,7 @@ import MainLayout from "./components/MainLayout.vue";
 import SearchModal from "./components/SearchModal.vue";
 import { useTheme } from "./composables/useTheme";
 
-const { applyTheme, currentTheme } = useTheme();
+const { applyTheme, currentTheme, isDarkMode } = useTheme();
 
 const isLoggedIn = ref(false);
 const layoutKey = ref(0); // Force remount MainLayout on account switch
@@ -38,7 +38,7 @@ provide('appAccountSwitch', handleAccountSwitch);
 </script>
 
 <template>
-  <main class="app-container">
+  <main class="app-container" :class="isDarkMode ? 'dark-theme' : 'light-theme'">
     <!-- Global Draggable Titlebar -->
     <div data-tauri-drag-region class="titlebar">
       Celechron

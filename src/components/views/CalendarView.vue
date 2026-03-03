@@ -998,7 +998,7 @@ onMounted(() => {
   padding: 2rem 2.5rem 6rem;
   max-width: 950px;
   margin: 0 auto;
-  color: #fff;
+  color: var(--text-main);
 }
 .debug-panel {
   margin-bottom: 1rem;
@@ -1083,11 +1083,11 @@ onMounted(() => {
   margin: 0;
   font-size: 1.6rem;
   font-weight: 700;
-  color: #e2e8f0;
+  color: var(--text-main);
 }
 .month-label {
   font-size: 1rem;
-  color: #38bdf8;
+  color: var(--accent-blue);
   font-weight: 600;
 }
 .cal-actions-section {
@@ -1142,7 +1142,7 @@ onMounted(() => {
 .semester-tab {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--text-muted);
   padding: 6px 14px;
   border-radius: 10px;
   font-size: 0.85rem;
@@ -1153,7 +1153,7 @@ onMounted(() => {
 }
 .semester-tab:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #f8fafc;
+  color: var(--text-main);
 }
 .semester-tab.active {
   background: #38bdf8;
@@ -1190,19 +1190,19 @@ onMounted(() => {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 .badge-value {
   font-size: 1.1rem;
   font-weight: 700;
-  color: #38bdf8;
+  color: var(--accent-blue);
 }
-.pill-btn:hover { background: rgba(255,255,255,.1); color: #fff; }
+.pill-btn:hover { background: rgba(255,255,255,.1); color: var(--text-main); }
 .pill-label {
   padding: 0 12px;
   font-size: 0.85rem;
   font-weight: 600;
-  color: #e2e8f0;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1258,7 +1258,7 @@ onMounted(() => {
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
+  color: var(--text-main);
   font-size: 1.2rem;
   cursor: pointer;
   transition: all 0.2s;
@@ -1309,13 +1309,13 @@ onMounted(() => {
 }
 .detail-label {
   font-size: 0.85rem;
-  color: #94a3b8;
+  color: var(--text-muted);
   white-space: nowrap;
   margin-right: 1rem;
 }
 .detail-value {
   font-size: 0.9rem;
-  color: #e2e8f0;
+  color: var(--text-main);
   text-align: right;
   word-break: break-all;
 }
@@ -1360,7 +1360,7 @@ onMounted(() => {
 .today-summary h3 {
   margin: 0 0 .8rem;
   font-size: 1rem;
-  color: #e2e8f0;
+  color: var(--text-main);
 }
 .today-list { display: flex; gap: 10px; overflow-x: auto; }
 .today-item {
@@ -1374,9 +1374,9 @@ onMounted(() => {
   gap: 4px;
   flex-shrink: 0;
 }
-.today-name { font-weight: 700; font-size: .88rem; color: #e2e8f0; }
-.today-time { font-size: .75rem; color: #94a3b8; }
-.today-loc { font-size: .75rem; color: #64748b; }
+.today-name { font-weight: 700; font-size: .88rem; color: var(--text-main); }
+.today-time { font-size: .75rem; color: var(--text-muted); }
+.today-loc { font-size: .75rem; color: var(--text-muted); }
 
 /* Schedule Grid */
 .schedule-grid-container {
@@ -1455,8 +1455,8 @@ onMounted(() => {
   backdrop-filter: blur(8px);
 }
 .course-block:hover { transform: scale(1.02); z-index: 10; box-shadow: 0 4px 12px var(--nav-shadow); }
-.course-name { font-size: .72rem; font-weight: 700; color: var(--text-main); line-height: 1.2; }
-.course-loc { font-size: .6rem; color: var(--text-muted); font-weight: 500; }
+.course-name { font-size: .72rem; font-weight: 700; color: var(--text-inverse); line-height: 1.2; }
+.course-loc { font-size: .6rem; color: color-mix(in srgb, var(--text-inverse) 86%, transparent); font-weight: 500; }
 
 /* Month Grid Styles */
 .month-grid-container {
@@ -1465,7 +1465,7 @@ onMounted(() => {
   gap: 1.5rem;
   margin-top: 1.5rem;
   padding-top: 1.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid var(--panel-border);
 }
 
 @media (min-width: 900px) {
@@ -1587,14 +1587,11 @@ onMounted(() => {
 }
 
 .day-item {
-  background: rgba(0,0,0,0.2);
+  background: color-mix(in srgb, var(--panel-bg) 72%, transparent);
   border-radius: 12px;
   padding: 12px 16px;
   margin-bottom: 8px;
   border-left: 4px solid transparent;
-}
-:global(.light-theme) .day-item {
-  background: rgba(0,0,0,0.03);
 }
 
 .exam-item { border-left-color: #ef4444; }
@@ -1764,10 +1761,7 @@ onMounted(() => {
 .hide-course-settings span {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #e2e8f0;
-}
-:global(.light-theme) .hide-course-settings span {
-  color: #334155;
+  color: var(--text-main);
 }
 .hide-course-settings:hover {
   transform: translateY(-2px);
@@ -1806,15 +1800,8 @@ onMounted(() => {
 }
 
 .action-icon-btn {
-  color: #1e293b;
-}
-:global(.light-theme) .item-desc {
-  color: #64748b;
-}
-
-.action-icon-btn {
   background: transparent;
-  color: #64748b;
+  color: var(--text-muted);
   border: none;
   padding: 8px;
   border-radius: 8px;

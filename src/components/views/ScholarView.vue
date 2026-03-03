@@ -783,10 +783,19 @@ onMounted(() => {
   font-size: 1.8rem;
   font-weight: 700;
   margin: 0;
-  background: linear-gradient(135deg, #e2e8f0, #f8fafc);
+  color: var(--text-main);
+  background: linear-gradient(
+    135deg,
+    var(--text-main),
+    color-mix(in srgb, var(--text-main) 72%, var(--text-muted))
+  );
   background-clip: text;
   -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+}
+@supports (-webkit-background-clip: text) {
+  .scholar-header h1 {
+    -webkit-text-fill-color: transparent;
+  }
 }
 .update-badge {
   display: flex;
@@ -1292,10 +1301,11 @@ onMounted(() => {
 
 /* ── ScholarView Light Mode Overrides ── */
 :global(.light-theme) .scholar-header h1 {
-  background: linear-gradient(135deg, #1e293b, #334155);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  background: linear-gradient(
+    135deg,
+    var(--text-main),
+    color-mix(in srgb, var(--text-main) 72%, var(--text-muted))
+  );
 }
 :global(.light-theme) .rule-content {
   color: #475569;

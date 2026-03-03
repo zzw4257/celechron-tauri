@@ -223,10 +223,15 @@ onMounted(() => {
   font-size: 1.8rem;
   font-weight: 700;
   margin: 0;
+  color: var(--task-title-start);
   background: linear-gradient(135deg, var(--task-title-start), var(--task-title-end));
   background-clip: text;
   -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+}
+@supports (-webkit-background-clip: text) {
+  .task-header h1 {
+    -webkit-text-fill-color: transparent;
+  }
 }
 
 .pomodoro-wrap {
