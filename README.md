@@ -87,7 +87,10 @@ npm run release:mac
 # 构建 Android 包 (apk + aab)
 npm run release:android
 
-# 构建 Android 测试包 (debug 签名，仅 APK)
+# 构建 Android 测试包 (release 签名，arm64，仅 APK，推荐手机真机测试)
+npm run release:android:test
+
+# 仅在需要调试器/免签安装时才使用 debug APK
 npm run build:android:debug
 
 # 构建 iOS 包（非本轮 release gate，可单独执行）
@@ -100,7 +103,7 @@ npm run release:ios
 
 每次构建会额外生成 `dist/release-manifest.json`，记录 tag / channel / commit / artifact 前缀。
 
-Android 本地 release 打包需要以下环境变量（缺失会被阻断）：
+Android 本地 release 打包需要以下环境变量（包括 `release:android` 和 `release:android:test`，缺失会被阻断）：
 
 - `ANDROID_KEYSTORE_PATH`
 - `ANDROID_KEYSTORE_PASSWORD`

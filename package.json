@@ -23,7 +23,8 @@
     "prepare": "husky",
     "check:secrets": "node scripts/check-secrets.mjs",
     "smoke:local": "node scripts/local-smoke.mjs",
-    "build:manifest": "node scripts/generate-release-manifest.mjs"
+    "build:manifest": "node scripts/generate-release-manifest.mjs",
+    "release:android:test": "npm run release:sync-version && npm run android:patch-signing && npm run tauri -- android build --apk --target aarch64 --split-per-abi"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

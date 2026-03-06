@@ -22,6 +22,7 @@ npm run release:sync-version
 ```bash
 npm run release:mac
 npm run release:android
+npm run release:android:test
 npm run build:android:debug
 npm run release:ios
 npm run release:all
@@ -30,7 +31,8 @@ npm run release:all
 策略：macOS + Android 自动出包，人工分发或上传；iOS 保留显式单独命令，但不进入本轮 release gate。
 
 - `release:android`：上架包（APK + AAB），要求 release 签名环境变量。
-- `build:android:debug`：测试包（debug 签名，仅 APK），不要求 release 签名环境变量。
+- `release:android:test`：真机测试优先方案，生成 release 签名的 arm64 APK，体积和安装行为更接近正式版。
+- `build:android:debug`：仅在需要调试器、临时免 release 签名或排查构建问题时使用，不作为默认测试发包。
 
 ## 2. Android 签名
 
