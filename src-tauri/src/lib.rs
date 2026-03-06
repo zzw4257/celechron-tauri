@@ -1,6 +1,8 @@
 mod api;
 mod courses;
 mod gpa;
+mod integrations;
+mod materials;
 mod term;
 mod zdbk;
 mod zjuam;
@@ -9,6 +11,8 @@ use crate::api::{cache_read_envelope, cache_write_envelope, envelope};
 use crate::gpa::{
     apply_simulated_score, compute_gpa_by_policy, enrich_grade, extract_semester_name, RetakePolicy,
 };
+use crate::integrations::{AiAnalysisInput, DingtalkTestInput};
+use crate::materials::{DownloadMaterialInput, MaterialPathInput};
 use crate::term::{
     descriptor_from_name, descriptor_from_parts, load_term_time_config,
     normalize_academic_semester, normalize_timetable_sessions,
@@ -230,6 +234,54 @@ async fn fetch_todos(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<
     }
 }
 
+#[tauri::command]
+fn fetch_materials(app: AppHandle) -> Result<Value, String> {
+    Ok(envelope(materials::fetch_materials(&app)?, "network"))
+}
+
+#[tauri::command]
+async fn download_material_asset(
+    app: AppHandle,
+    input: DownloadMaterialInput,
+) -> Result<Value, String> {
+    Ok(envelope(
+        materials::download_material_asset(&app, input).await?,
+        "network",
+    ))
+}
+
+#[tauri::command]
+fn open_material_asset(app: AppHandle, input: MaterialPathInput) -> Result<Value, String> {
+    Ok(envelope(
+        materials::open_material_asset(&app, input)?,
+        "network",
+    ))
+}
+
+#[tauri::command]
+fn remove_material_cache(app: AppHandle, input: MaterialPathInput) -> Result<Value, String> {
+    Ok(envelope(
+        materials::remove_material_cache(&app, input)?,
+        "network",
+    ))
+}
+
+#[tauri::command]
+async fn run_ai_analysis(input: AiAnalysisInput) -> Result<Value, String> {
+    Ok(envelope(
+        integrations::run_ai_analysis(input).await?,
+        "network",
+    ))
+}
+
+#[tauri::command]
+async fn send_dingtalk_test(input: DingtalkTestInput) -> Result<Value, String> {
+    Ok(envelope(
+        integrations::send_dingtalk_test(input).await?,
+        "network",
+    ))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GpaPreviewInput {
@@ -370,7 +422,13 @@ pub fn run() {
             fetch_scholar_data,
             fetch_timetable,
             fetch_todos,
+            fetch_materials,
+            download_material_asset,
+            open_material_asset,
+            remove_material_cache,
             calculate_gpa_preview,
+            run_ai_analysis,
+            send_dingtalk_test,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,8 +2,13 @@ import { invoke } from '@tauri-apps/api/core';
 import type {
   ApiEnvelope,
   ApiMeta,
+  AiAnalysisInput,
+  AiAnalysisPayload,
+  DingtalkTestInput,
+  DownloadMaterialInput,
   GpaPreviewInput,
   GpaSummary,
+  MaterialsPayload,
   ScholarPayload,
   TimetablePayload,
   TodosPayload,
@@ -65,4 +70,31 @@ export async function fetchTodos(): Promise<ApiEnvelope<TodosPayload>> {
 export async function calculateGpaPreview(input: GpaPreviewInput): Promise<GpaSummary> {
   const result = await invoke('calculate_gpa_preview', { input });
   return result as GpaSummary;
+}
+
+
+export async function fetchMaterials(): Promise<ApiEnvelope<MaterialsPayload>> {
+  const env = await callEnvelope<MaterialsPayload>('fetch_materials');
+  env.data.items = Array.isArray(env.data?.items) ? env.data.items : [];
+  return env;
+}
+
+export async function downloadMaterialAsset(input: DownloadMaterialInput): Promise<ApiEnvelope<{ item: unknown }>> {
+  return callEnvelope<{ item: unknown }>('download_material_asset', { input });
+}
+
+export async function openMaterialAsset(relativePath: string): Promise<ApiEnvelope<{ ok: boolean }>> {
+  return callEnvelope<{ ok: boolean }>('open_material_asset', { input: { relativePath } });
+}
+
+export async function removeMaterialCache(relativePath: string): Promise<ApiEnvelope<{ ok: boolean }>> {
+  return callEnvelope<{ ok: boolean }>('remove_material_cache', { input: { relativePath } });
+}
+
+export async function runAiAnalysis(input: AiAnalysisInput): Promise<ApiEnvelope<AiAnalysisPayload>> {
+  return callEnvelope<AiAnalysisPayload>('run_ai_analysis', { input });
+}
+
+export async function sendDingtalkTest(input: DingtalkTestInput): Promise<ApiEnvelope<{ ok: boolean; raw: Record<string, unknown> }>> {
+  return callEnvelope<{ ok: boolean; raw: Record<string, unknown> }>('send_dingtalk_test', { input });
 }

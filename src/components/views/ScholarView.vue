@@ -9,13 +9,13 @@ import { GridComponent, TooltipComponent, TitleComponent, LegendComponent } from
 import VChart from 'vue-echarts';
 import { useTheme } from "../../composables/useTheme";
 import { usePreferences } from "../../composables/usePreferences";
-import { calculateGpaPreview, fetchScholarData, fetchTodos } from "../../services/api";
+import { calculateGpaPreview, fetchScholarData, fetchTodos, runAiAnalysis } from "../../services/api";
 import { formatTermDisplayName } from "../../utils/semester";
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, TitleComponent, LegendComponent]);
 
 const { isLightMode } = useTheme();
-const { retakePolicy, hideGpa, courseIdMappings } = usePreferences();
+const { retakePolicy, hideGpa, courseIdMappings, zeroClawEndpoint, zeroClawApiKey } = usePreferences();
 const isDev = import.meta.env.DEV;
 
 const isLoading = ref(true);
@@ -60,6 +60,10 @@ const gpaByPolicy = ref({
   highest: { ...EMPTY_GPA },
 });
 const scholarMeta = ref({ source: "unknown", timestamp: 0 });
+
+const aiLoading = ref(false);
+const aiError = ref('');
+const aiMarkdown = ref('');
 
 const activePolicy = computed(() => retakePolicy.value);
 
@@ -206,6 +210,58 @@ async function refreshCustomGpaPreview() {
   } catch (err) {
     customGpaServer.value = null;
     console.warn('calculate_gpa_preview failed:', err);
+  }
+}
+
+const aiContext = computed(() => ({
+  overview: {
+    currentPolicy: activePolicy.value,
+    overallGpa: displayGpa.value,
+    semesterCount: semestersList.value.length,
+    currentSemester: semester.value,
+    practice: practice.value,
+  },
+  semesterTrend: semestersList.value.map((item) => ({
+    name: item.displayName || formatTermDisplayName(item.term, item.name),
+    gpaFirst: item.gpaByPolicy?.first?.fivePoint || 0,
+    gpaHighest: item.gpaByPolicy?.highest?.fivePoint || 0,
+    creditsFirst: item.gpaByPolicy?.first?.totalCredits || 0,
+  })),
+  upcomingExams: exams.value.slice(0, 5).map((exam: any) => ({
+    name: exam.kcmc || exam.course_name || exam.name || '未知考试',
+    time: exam.kssj || exam.qzkssj || exam.time?.[0] || '',
+    location: exam.cdmc || exam.location || '',
+  })),
+  upcomingTodos: todos.value.slice(0, 5).map((todo: any) => ({
+    title: todo.title,
+    courseName: todo.course_name || '',
+    endTime: todo.end_time || todo.expires || '',
+  })),
+}));
+
+async function handleAiAnalysis() {
+  if (!zeroClawEndpoint.value || aiLoading.value) {
+    aiError.value = zeroClawEndpoint.value ? '' : '请先在设置页填写 ZeroClaw Endpoint';
+    return;
+  }
+
+  aiLoading.value = true;
+  aiError.value = '';
+  try {
+    const env = await runAiAnalysis({
+      baseUrl: zeroClawEndpoint.value,
+      apiKey: zeroClawApiKey.value || undefined,
+      prompt: '请基于当前学业成绩、学期趋势、考试和待办，输出一份中文学业综合分析。要求包含风险提示、重点课程、近期行动建议。',
+      context: aiContext.value as Record<string, unknown>,
+    });
+    aiMarkdown.value = env.data.markdown || '';
+    if (!aiMarkdown.value) {
+      aiError.value = 'ZeroClaw 已响应，但未返回可展示的 markdown 内容';
+    }
+  } catch (error: any) {
+    aiError.value = error?.message || String(error);
+  } finally {
+    aiLoading.value = false;
   }
 }
 
@@ -548,6 +604,33 @@ onMounted(() => {
           <span class="grade-label">{{ item.label }}</span>
           <span class="grade-value">{{ item.value() }}</span>
         </div>
+      </div>
+    </section>
+
+    <section class="section-card">
+      <div class="section-header">
+        <span class="section-icon">AI</span>
+        <span class="section-title">综合分析</span>
+        <div style="flex-grow: 1;"></div>
+        <button class="custom-gpa-toggle" :disabled="aiLoading || !zeroClawEndpoint" @click="handleAiAnalysis">
+          {{ aiLoading ? '分析中...' : '生成分析' }}
+        </button>
+      </div>
+      <div v-if="!zeroClawEndpoint" class="offline-banner">
+        <div class="offline-text">
+          <strong>尚未配置 ZeroClaw</strong>
+          <span>请到设置页填写 ZeroClaw Endpoint 和可选 API Key。</span>
+        </div>
+      </div>
+      <div v-else-if="aiError" class="offline-banner">
+        <div class="offline-text">
+          <strong>分析失败</strong>
+          <span>{{ aiError }}</span>
+        </div>
+      </div>
+      <pre v-else-if="aiMarkdown" class="ai-markdown">{{ aiMarkdown }}</pre>
+      <div v-else class="loading-state">
+        <span>可基于当前 GPA、趋势、考试和待办生成学业综合分析。</span>
       </div>
     </section>
 
@@ -1403,5 +1486,20 @@ onMounted(() => {
 :global(html[data-theme='light']) .exam-days.future {
   color: #0284c7;
   background: rgba(2, 132, 199, 0.1);
+}
+</style>
+
+<style scoped>
+.ai-markdown {
+  margin: 1rem 0 0;
+  padding: 1rem 1.1rem;
+  white-space: pre-wrap;
+  line-height: 1.7;
+  color: var(--text-main);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92rem;
 }
 </style>

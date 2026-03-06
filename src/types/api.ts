@@ -111,3 +111,51 @@ export interface GpaPreviewInput {
   majorCourseIds?: string[];
   courseIdMappings?: Record<string, string>;
 }
+
+export interface MaterialAsset {
+  id: string;
+  courseName: string;
+  title: string;
+  fileName: string;
+  relativePath: string;
+  absolutePath: string;
+  sourceUrl?: string | null;
+  mimeType?: string | null;
+  sizeBytes: number;
+  downloadedAt: number;
+  updatedAt: number;
+  exists: boolean;
+}
+
+export interface MaterialsPayload {
+  items: MaterialAsset[];
+}
+
+export interface DownloadMaterialInput {
+  url: string;
+  courseName: string;
+  title: string;
+  fileName?: string;
+  source?: string;
+}
+
+export interface AiAnalysisInput {
+  baseUrl: string;
+  apiKey?: string;
+  prompt: string;
+  context: Record<string, unknown>;
+  requestBody?: Record<string, unknown>;
+}
+
+export interface AiAnalysisPayload {
+  markdown: string;
+  raw: Record<string, unknown> | string;
+  provider: string;
+}
+
+export interface DingtalkTestInput {
+  webhookUrl: string;
+  secret?: string;
+  title?: string;
+  text?: string;
+}

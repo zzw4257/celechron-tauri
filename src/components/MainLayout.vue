@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, inject } from "vue";
-import { Clock, CalendarDays, CheckSquare, GraduationCap, Settings, LogOut, Search } from "lucide-vue-next";
+import { ref } from "vue";
+import { Clock, CalendarDays, CheckSquare, GraduationCap, Settings, Search, LibraryBig } from "lucide-vue-next";
 
 import FlowView from "./views/FlowView.vue";
 import CalendarView from "./views/CalendarView.vue";
 import TaskView from "./views/TaskView.vue";
 import ScholarView from "./views/ScholarView.vue";
 import OptionView from "./views/OptionView.vue";
+import MaterialsView from "./views/MaterialsView.vue";
 
 const activeTab = ref("scholar"); // default to Scholar as requested
 
@@ -15,10 +16,9 @@ const tabs = [
   { id: "calendar", label: "日程", icon: CalendarDays, component: CalendarView },
   { id: "task", label: "任务", icon: CheckSquare, component: TaskView },
   { id: "scholar", label: "学业", icon: GraduationCap, component: ScholarView },
+  { id: "materials", label: "资料", icon: LibraryBig, component: MaterialsView },
   { id: "option", label: "设置", icon: Settings, component: OptionView },
 ];
-
-const logout = inject<() => void>('appLogout', () => { window.location.reload(); });
 
 const triggerGlobalSearch = () => {
   if (typeof (window as any).__toggleGlobalSearch === 'function') {
@@ -59,10 +59,6 @@ const triggerGlobalSearch = () => {
            <span class="nav-label">搜索</span>
         </div>
 
-        <div class="nav-item logout-btn" @click="logout" title="Log out">
-           <LogOut class="nav-icon" :size="24" />
-           <span class="nav-label">退出</span>
-        </div>
       </div>
     </nav>
   </div>

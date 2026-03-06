@@ -16,7 +16,10 @@ export interface Preferences {
   manualSemesterAnchors: Record<string, string>;
   courseIdMappings: Record<string, string>;
   dingtalkWebhookEnabled: boolean;
+  dingtalkWebhookUrl: string;
+  dingtalkWebhookSecret: string;
   zeroClawEndpoint: string;
+  zeroClawApiKey: string;
 }
 
 const STORAGE_KEY = 'celechron_preferences_v2';
@@ -31,7 +34,10 @@ const DEFAULTS: Preferences = {
   manualSemesterAnchors: {},
   courseIdMappings: {},
   dingtalkWebhookEnabled: false,
+  dingtalkWebhookUrl: '',
+  dingtalkWebhookSecret: '',
   zeroClawEndpoint: '',
+  zeroClawApiKey: '',
 };
 
 function sanitize(input: Partial<Preferences> | null | undefined): Preferences {
@@ -57,7 +63,10 @@ function sanitize(input: Partial<Preferences> | null | undefined): Preferences {
     manualSemesterAnchors: input?.manualSemesterAnchors || {},
     courseIdMappings: input?.courseIdMappings || {},
     dingtalkWebhookEnabled: Boolean(input?.dingtalkWebhookEnabled),
+    dingtalkWebhookUrl: String((input as any)?.dingtalkWebhookUrl || ''),
+    dingtalkWebhookSecret: String((input as any)?.dingtalkWebhookSecret || ''),
     zeroClawEndpoint: String(input?.zeroClawEndpoint || ''),
+    zeroClawApiKey: String((input as any)?.zeroClawApiKey || ''),
   };
 }
 
@@ -122,6 +131,10 @@ export function usePreferences() {
   const manualSemesterAnchors = computed(() => preferencesState.value.manualSemesterAnchors);
   const courseIdMappings = computed(() => preferencesState.value.courseIdMappings);
   const zeroClawEndpoint = computed(() => preferencesState.value.zeroClawEndpoint);
+  const zeroClawApiKey = computed(() => preferencesState.value.zeroClawApiKey);
+  const dingtalkWebhookEnabled = computed(() => preferencesState.value.dingtalkWebhookEnabled);
+  const dingtalkWebhookUrl = computed(() => preferencesState.value.dingtalkWebhookUrl);
+  const dingtalkWebhookSecret = computed(() => preferencesState.value.dingtalkWebhookSecret);
 
   return {
     preferences,
@@ -134,7 +147,11 @@ export function usePreferences() {
     timeConfigMode,
     manualSemesterAnchors,
     courseIdMappings,
+    dingtalkWebhookEnabled,
+    dingtalkWebhookUrl,
+    dingtalkWebhookSecret,
     zeroClawEndpoint,
+    zeroClawApiKey,
     patchPreferences,
     setManualSemesterAnchor,
     bumpAccountScope,
@@ -145,6 +162,10 @@ export function usePreferences() {
     setGlassEffect: (value: GlassEffect) => patchPreferences({ glassEffect: value }),
     setTimeConfigMode: (value: TimeConfigMode) => patchPreferences({ timeConfigMode: value }),
     setCourseIdMappings: (value: Record<string, string>) => patchPreferences({ courseIdMappings: value }),
+    setDingtalkWebhookEnabled: (value: boolean) => patchPreferences({ dingtalkWebhookEnabled: value }),
+    setDingtalkWebhookUrl: (value: string) => patchPreferences({ dingtalkWebhookUrl: value.trim() }),
+    setDingtalkWebhookSecret: (value: string) => patchPreferences({ dingtalkWebhookSecret: value.trim() }),
     setZeroClawEndpoint: (value: string) => patchPreferences({ zeroClawEndpoint: value.trim() }),
+    setZeroClawApiKey: (value: string) => patchPreferences({ zeroClawApiKey: value.trim() }),
   };
 }

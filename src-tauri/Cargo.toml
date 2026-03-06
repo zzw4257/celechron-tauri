@@ -21,6 +21,10 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+urlencoding = "2.1"
+sha2 = "0.10"
+hmac = "0.12"
+base64 = "0.22"
 hex = "0.4"
 num-bigint = "0.4"
 tauri-plugin-single-instance = "2.4.0"

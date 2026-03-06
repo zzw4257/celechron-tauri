@@ -6,13 +6,28 @@ import { useTheme, type ThemeType } from "../../composables/useTheme";
 import { useAccounts, type SavedAccount } from "../../composables/useAccounts";
 import { useBiometric } from "../../composables/useBiometric";
 import { usePreferences } from "../../composables/usePreferences";
-import { fetchScholarData, fetchTodos } from "../../services/api";
+import { fetchScholarData, fetchTodos, sendDingtalkTest } from "../../services/api";
 import packageJson from "../../../package.json";
 
 const { currentTheme, THEMES, setTheme, isLightMode, toggleLightMode, glassEffect, setGlassEffect } = useTheme();
 const { accounts, addAccount, removeAccount, updateNickname, getPassword, accountDisplayName, isFull } = useAccounts();
 const { authenticate, isBiometricAvailable } = useBiometric();
-const { retakePolicy, hideGpa, setRetakePolicy: updateRetakePolicy, setHideGpa: updateHideGpa } = usePreferences();
+const {
+  retakePolicy,
+  hideGpa,
+  dingtalkWebhookEnabled,
+  dingtalkWebhookUrl,
+  dingtalkWebhookSecret,
+  zeroClawEndpoint,
+  zeroClawApiKey,
+  setRetakePolicy: updateRetakePolicy,
+  setHideGpa: updateHideGpa,
+  setDingtalkWebhookEnabled,
+  setDingtalkWebhookUrl,
+  setDingtalkWebhookSecret,
+  setZeroClawEndpoint,
+  setZeroClawApiKey,
+} = usePreferences();
 
 const useBiometricAuth = ref(localStorage.getItem('useBiometric') !== 'false');
 const biometricHardwareAvailable = ref(false);
@@ -51,6 +66,43 @@ const addFormNickname = ref("");
 const addFormStatus = ref("");
 const addFormLoading = ref(false);
 const appVersion = packageJson.version;
+const integrationStatus = ref("");
+const dingtalkTestLoading = ref(false);
+
+function updateZeroClawEndpoint(value: string) {
+  setZeroClawEndpoint(value);
+}
+
+function updateZeroClawApiKey(value: string) {
+  setZeroClawApiKey(value);
+}
+
+function updateDingtalkUrl(value: string) {
+  setDingtalkWebhookUrl(value);
+}
+
+function updateDingtalkSecret(value: string) {
+  setDingtalkWebhookSecret(value);
+}
+
+async function handleDingtalkTest() {
+  if (!dingtalkWebhookUrl.value || dingtalkTestLoading.value) return;
+  dingtalkTestLoading.value = true;
+  integrationStatus.value = "正在发送 DingTalk 测试消息...";
+  try {
+    const env = await sendDingtalkTest({
+      webhookUrl: dingtalkWebhookUrl.value,
+      secret: dingtalkWebhookSecret.value || undefined,
+      title: 'Celechron 集成测试',
+      text: '### Celechron 集成测试\n\n- 通道：DingTalk Webhook\n- 状态：测试消息发送成功',
+    });
+    integrationStatus.value = env.data.ok ? 'DingTalk 测试消息发送成功' : 'DingTalk 返回了异常结果';
+  } catch (error: any) {
+    integrationStatus.value = error?.message || String(error);
+  } finally {
+    dingtalkTestLoading.value = false;
+  }
+}
 
 async function handleRefresh() {
   if (isRefreshing.value) return;
@@ -282,6 +334,69 @@ function deleteAccount(id: string) {
               </div>
               <div class="toggle-switch" :class="{ active: hideGpa }" @click="toggleHideGpa">
                 <div class="toggle-knob"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-group">
+        <h3 class="group-title">AI 与通知</h3>
+        <div class="settings-card">
+          <div class="setting-item readonly-item">
+            <div class="setting-info setting-info-start setting-info-spread">
+              <div class="setting-text setting-text-full">
+                <span class="setting-name">ZeroClaw Endpoint</span>
+                <span class="setting-desc">用于学业综合分析和后续资料联动分析，建议填写完整 HTTP 地址。</span>
+                <input
+                  :value="zeroClawEndpoint"
+                  type="url"
+                  class="add-form-input integration-input"
+                  placeholder="https://your-zeroclaw-host/api/analyze"
+                  @input="updateZeroClawEndpoint(($event.target as HTMLInputElement).value)"
+                />
+                <input
+                  :value="zeroClawApiKey"
+                  type="password"
+                  class="add-form-input integration-input"
+                  placeholder="ZeroClaw API Key（可选）"
+                  @input="updateZeroClawApiKey(($event.target as HTMLInputElement).value)"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-item readonly-item no-divider">
+            <div class="setting-info setting-info-start setting-info-spread">
+              <div class="setting-text setting-text-full">
+                <span class="setting-name">DingTalk Webhook</span>
+                <span class="setting-desc">第一阶段先做 webhook 机器人，支持测试消息与后续成绩/资料提醒。</span>
+                <div class="toggle-line">
+                  <span>启用 DingTalk 推送</span>
+                  <div class="toggle-switch" :class="{ active: dingtalkWebhookEnabled }" @click="setDingtalkWebhookEnabled(!dingtalkWebhookEnabled)">
+                    <div class="toggle-knob"></div>
+                  </div>
+                </div>
+                <input
+                  :value="dingtalkWebhookUrl"
+                  type="url"
+                  class="add-form-input integration-input"
+                  placeholder="https://oapi.dingtalk.com/robot/send?..."
+                  @input="updateDingtalkUrl(($event.target as HTMLInputElement).value)"
+                />
+                <input
+                  :value="dingtalkWebhookSecret"
+                  type="password"
+                  class="add-form-input integration-input"
+                  placeholder="签名 secret（可选）"
+                  @input="updateDingtalkSecret(($event.target as HTMLInputElement).value)"
+                />
+                <div class="integration-actions">
+                  <button class="btn-text btn-switch" :disabled="!dingtalkWebhookUrl || dingtalkTestLoading" @click="handleDingtalkTest">
+                    {{ dingtalkTestLoading ? '发送中...' : '发送测试消息' }}
+                  </button>
+                </div>
+                <div v-if="integrationStatus" class="switch-status" :class="{ error: integrationStatus.includes('失败') || integrationStatus.includes('异常') }">{{ integrationStatus }}</div>
               </div>
             </div>
           </div>
@@ -917,5 +1032,27 @@ function deleteAccount(id: string) {
 .add-form-submit:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+</style>
+
+<style scoped>
+.integration-input {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.toggle-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.85rem;
+  color: var(--option-name);
+}
+
+.integration-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.85rem;
 }
 </style>
