@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { convertFileSrc } from '@tauri-apps/api/core';
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import ActionPill from '../ui/ActionPill.vue';
+import InlineStat from '../ui/InlineStat.vue';
+import SectionCard from '../ui/SectionCard.vue';
+import SegmentedFilter from '../ui/SegmentedFilter.vue';
+import StatusBanner from '../ui/StatusBanner.vue';
 import type { MaterialAsset, MaterialsPayload, RemoteMaterialAsset } from '../../types/api';
 import {
   cacheRemoteMaterial,
@@ -10,16 +15,12 @@ import {
   readMaterialText,
   removeMaterialCache,
   runAiAnalysis,
-  sendDingtalkTest,
   syncMaterialsIndex,
 } from '../../services/api';
 import { usePreferences } from '../../composables/usePreferences';
 
 const {
   accountScope,
-  dingtalkWebhookEnabled,
-  dingtalkWebhookSecret,
-  dingtalkWebhookUrl,
   zeroClawApiKey,
   zeroClawEndpoint,
 } = usePreferences();
@@ -27,22 +28,29 @@ const {
 const isLoading = ref(true);
 const isSyncing = ref(false);
 const isSubmitting = ref(false);
-const remoteDownloadingId = ref('');
+const previewLoading = ref(false);
+const aiLoading = ref(false);
 const errorMsg = ref('');
 const actionStatus = ref('');
-const items = ref<MaterialAsset[]>([]);
-const remoteItems = ref<RemoteMaterialAsset[]>([]);
-const lastSyncedAt = ref<number | null>(null);
-const warnings = ref<string[]>([]);
-const search = ref('');
-const showAddForm = ref(false);
-const selectedLocalPath = ref('');
+const aiError = ref('');
+const aiMarkdown = ref('');
 const previewText = ref('');
 const previewTruncated = ref(false);
-const previewLoading = ref(false);
-const aiMarkdown = ref('');
-const aiError = ref('');
-const aiLoading = ref(false);
+const items = ref<MaterialAsset[]>([]);
+const remoteItems = ref<RemoteMaterialAsset[]>([]);
+const warnings = ref<string[]>([]);
+const lastSyncedAt = ref<number | null>(null);
+const weekLabel = ref('');
+const defaultScope = ref<'current-week' | 'all'>('current-week');
+const sourcePriority = ref<string[]>(['classroom', 'activity', 'homework']);
+const courseFilters = ref<{ id: string; label: string; count: number }[]>([]);
+const selectedScope = ref<'current-week' | 'all'>('current-week');
+const selectedSource = ref('all');
+const selectedCourse = ref('all');
+const search = ref('');
+const selectedRemoteId = ref('');
+const selectedLocalPath = ref('');
+const showAddForm = ref(false);
 const draft = ref({
   courseName: '',
   title: '',
@@ -50,93 +58,35 @@ const draft = ref({
   fileName: '',
 });
 
-const selectedItem = computed(() => items.value.find((item) => item.relativePath === selectedLocalPath.value) || null);
+const sourceLabelMap: Record<string, string> = {
+  classroom: '智云课堂',
+  activity: '课程活动',
+  homework: '作业附件',
+};
 
-const localKeywordItems = computed(() => {
-  const keyword = search.value.trim().toLowerCase();
-  if (!keyword) return items.value;
-  return items.value.filter((item) =>
-    [item.courseName, item.title, item.fileName].join(' ').toLowerCase().includes(keyword),
-  );
-});
-
-const remoteKeywordItems = computed(() => {
-  const keyword = search.value.trim().toLowerCase();
-  if (!keyword) return remoteItems.value;
-  return remoteItems.value.filter((item) =>
-    [item.courseName, item.title, item.fileName, item.sourceType].join(' ').toLowerCase().includes(keyword),
-  );
-});
-
-const groupedLocalItems = computed(() => {
-  const groups = new Map<string, MaterialAsset[]>();
-  for (const item of localKeywordItems.value) {
-    const key = item.courseName || '未分组课程';
-    const bucket = groups.get(key) || [];
-    bucket.push(item);
-    groups.set(key, bucket);
-  }
-  return [...groups.entries()].map(([courseName, assets]) => ({ courseName, assets }));
-});
-
-const groupedRemoteItems = computed(() => {
-  const groups = new Map<string, RemoteMaterialAsset[]>();
-  for (const item of remoteKeywordItems.value) {
-    const key = item.courseName || '未分组课程';
-    const bucket = groups.get(key) || [];
-    bucket.push(item);
-    groups.set(key, bucket);
-  }
-  return [...groups.entries()].map(([courseName, assets]) => ({ courseName, assets }));
-});
-
-const stats = computed(() => ({
-  localCount: items.value.length,
-  remoteCount: remoteItems.value.length,
-  availableRemoteCount: remoteItems.value.filter((item) => !item.downloaded).length,
-}));
-
-const previewMode = computed(() => {
-  const item = selectedItem.value;
-  if (!item) return 'empty';
-  const fileName = item.fileName.toLowerCase();
-  const mime = (item.mimeType || '').toLowerCase();
-  if (mime.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(fileName)) return 'image';
-  if (mime.includes('pdf') || fileName.endsWith('.pdf')) return 'pdf';
-  if (
-    mime.startsWith('text/') ||
-    mime.includes('json') ||
-    mime.includes('xml') ||
-    /\.(txt|md|markdown|json|csv|tsv|yaml|yml|xml|html|htm|js|ts|jsx|tsx|py|rs|java|c|cpp|h|hpp)$/i.test(fileName)
-  ) {
-    return 'text';
-  }
-  return 'unsupported';
-});
-
-const previewUrl = computed(() => {
-  if (!selectedItem.value || previewMode.value === 'text' || previewMode.value === 'empty') {
-    return '';
-  }
-  return convertFileSrc(selectedItem.value.absolutePath);
-});
+function navigateToSettings() {
+  window.dispatchEvent(new CustomEvent('celechron:navigate', { detail: { tab: 'option' } }));
+}
 
 function hydrate(payload: MaterialsPayload) {
   items.value = Array.isArray(payload.items) ? payload.items : [];
   remoteItems.value = Array.isArray(payload.remoteItems) ? payload.remoteItems : [];
-  lastSyncedAt.value = typeof payload.lastSyncedAt === 'number' ? payload.lastSyncedAt : null;
   warnings.value = Array.isArray(payload.warnings) ? payload.warnings : [];
+  lastSyncedAt.value = typeof payload.lastSyncedAt === 'number' ? payload.lastSyncedAt : null;
+  weekLabel.value = payload.weekLabel || '';
+  defaultScope.value = payload.defaultScope === 'all' ? 'all' : 'current-week';
+  sourcePriority.value = Array.isArray(payload.sourcePriority) && payload.sourcePriority.length
+    ? payload.sourcePriority
+    : ['classroom', 'activity', 'homework'];
+  courseFilters.value = Array.isArray(payload.courseFilters) ? payload.courseFilters : [];
+
+  if (!selectedRemoteId.value || !remoteItems.value.some((item) => item.id === selectedRemoteId.value)) {
+    selectedRemoteId.value = remoteItems.value[0]?.id || '';
+  }
 
   if (!selectedLocalPath.value || !items.value.some((item) => item.relativePath === selectedLocalPath.value)) {
     selectedLocalPath.value = items.value[0]?.relativePath || '';
   }
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 function formatTime(ts?: number | null) {
@@ -144,18 +94,114 @@ function formatTime(ts?: number | null) {
   return new Date(ts * 1000).toLocaleString('zh-CN', { hour12: false });
 }
 
-function materialSourceLabel(sourceType: string) {
-  if (sourceType === 'activity') return '课程活动';
-  if (sourceType === 'homework') return '作业附件';
-  return '远程资料';
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
+function sourceRank(type: string) {
+  const index = sourcePriority.value.indexOf(type);
+  return index === -1 ? sourcePriority.value.length : index;
+}
+
+const sourceOptions = computed(() => {
+  const counts = new Map<string, number>();
+  for (const item of remoteItems.value) {
+    counts.set(item.sourceType, (counts.get(item.sourceType) || 0) + 1);
+  }
+  const options = [{ value: 'all', label: '全部来源', badge: remoteItems.value.length }];
+  for (const source of sourcePriority.value) {
+    if (!counts.has(source)) continue;
+    options.push({
+      value: source,
+      label: sourceLabelMap[source] || source,
+      badge: counts.get(source) || 0,
+    });
+  }
+  return options;
+});
+
+const courseOptions = computed(() => [
+  { value: 'all', label: '我的课程', badge: remoteItems.value.length },
+  ...courseFilters.value.map((item) => ({ value: item.id, label: item.label, badge: item.count })),
+]);
+
+const visibleRemoteItems = computed(() => {
+  const keyword = search.value.trim().toLowerCase();
+  return [...remoteItems.value]
+    .filter((item) => selectedScope.value === 'all' || item.weekBucket === 'current')
+    .filter((item) => selectedSource.value === 'all' || item.sourceType === selectedSource.value)
+    .filter((item) => selectedCourse.value === 'all' || item.courseName === selectedCourse.value)
+    .filter((item) => {
+      if (!keyword) return true;
+      return [item.courseName, item.title, item.fileName, sourceLabelMap[item.sourceType] || item.sourceType]
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword);
+    })
+    .sort((left, right) => {
+      return sourceRank(left.sourceType) - sourceRank(right.sourceType) || right.updatedAt - left.updatedAt;
+    });
+});
+
+const visibleLocalItems = computed(() => {
+  const keyword = search.value.trim().toLowerCase();
+  return [...items.value].filter((item) => {
+    const matchKeyword = !keyword || [item.courseName, item.title, item.fileName].join(' ').toLowerCase().includes(keyword);
+    const matchCourse = selectedCourse.value === 'all' || item.courseName === selectedCourse.value;
+    return matchKeyword && matchCourse;
+  });
+});
+
+const summaryStats = computed(() => ({
+  currentWeek: remoteItems.value.filter((item) => item.weekBucket === 'current').length,
+  cached: items.value.length,
+  remoteTotal: remoteItems.value.length,
+  lastSynced: formatTime(lastSyncedAt.value),
+}));
+
+const selectedRemoteItem = computed(() => {
+  return visibleRemoteItems.value.find((item) => item.id === selectedRemoteId.value)
+    || remoteItems.value.find((item) => item.id === selectedRemoteId.value)
+    || visibleRemoteItems.value[0]
+    || null;
+});
+
+const selectedPreviewAsset = computed(() => {
+  const localFromSelection = items.value.find((item) => item.relativePath === selectedLocalPath.value);
+  if (localFromSelection) return localFromSelection;
+  const remote = selectedRemoteItem.value;
+  if (!remote?.downloaded || !remote.localRelativePath) return null;
+  return items.value.find((item) => item.relativePath === remote.localRelativePath) || null;
+});
+
+const previewMode = computed(() => {
+  const asset = selectedPreviewAsset.value;
+  if (!asset) return 'empty';
+  const fileName = asset.fileName.toLowerCase();
+  const mime = (asset.mimeType || '').toLowerCase();
+  if (mime.includes('html') || fileName.endsWith('.html') || fileName.endsWith('.htm')) return 'web';
+  if (mime.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp|svg)$/i.test(fileName)) return 'image';
+  if (mime.includes('pdf') || fileName.endsWith('.pdf')) return 'pdf';
+  if (mime.startsWith('text/') || /\.(txt|md|markdown|json|csv|tsv|yaml|yml|xml)$/i.test(fileName)) return 'text';
+  return 'unsupported';
+});
+
+const previewUrl = computed(() => {
+  const asset = selectedPreviewAsset.value;
+  if (!asset || previewMode.value === 'text' || previewMode.value === 'empty') return '';
+  return convertFileSrc(asset.absolutePath);
+});
 
 async function loadMaterials() {
   isLoading.value = true;
   errorMsg.value = '';
+  actionStatus.value = '';
   try {
     const env = await fetchMaterials();
     hydrate(env.data);
+    selectedScope.value = env.data.defaultScope === 'all' ? 'all' : 'current-week';
   } catch (error: any) {
     errorMsg.value = error?.message || String(error);
   } finally {
@@ -163,94 +209,15 @@ async function loadMaterials() {
   }
 }
 
-async function loadTextPreview(item: MaterialAsset | null) {
-  previewText.value = '';
-  previewTruncated.value = false;
-  aiMarkdown.value = '';
-  aiError.value = '';
-
-  if (!item || previewMode.value !== 'text') {
-    return;
-  }
-
-  previewLoading.value = true;
-  try {
-    const env = await readMaterialText(item.relativePath, 30000);
-    previewText.value = env.data.content || '';
-    previewTruncated.value = Boolean(env.data.truncated);
-  } catch (error: any) {
-    previewText.value = '';
-    previewTruncated.value = false;
-    actionStatus.value = error?.message || String(error);
-  } finally {
-    previewLoading.value = false;
-  }
-}
-
-function selectLocalItem(item: MaterialAsset) {
-  selectedLocalPath.value = item.relativePath;
-  actionStatus.value = '';
-}
-
-async function handleDownload() {
-  if (!draft.value.courseName || !draft.value.title || !draft.value.url || isSubmitting.value) {
-    return;
-  }
-  isSubmitting.value = true;
-  actionStatus.value = '正在下载资料...';
-  try {
-    const env = await downloadMaterialAsset({
-      courseName: draft.value.courseName,
-      title: draft.value.title,
-      url: draft.value.url,
-      fileName: draft.value.fileName || undefined,
-      source: 'manual',
-    });
-    draft.value = { courseName: '', title: '', url: '', fileName: '' };
-    showAddForm.value = false;
-    actionStatus.value = '资料已缓存到本地';
-    await loadMaterials();
-    const item = env.data.item as MaterialAsset | undefined;
-    if (item?.relativePath) {
-      selectedLocalPath.value = item.relativePath;
-    }
-  } catch (error: any) {
-    actionStatus.value = error?.message || String(error);
-  } finally {
-    isSubmitting.value = false;
-  }
-}
-
-async function handleSyncRemote() {
-  if (isSyncing.value) return;
+async function syncRemoteMaterials() {
   isSyncing.value = true;
-  actionStatus.value = '正在同步学在浙大资料索引...';
   errorMsg.value = '';
-  const knownAvailable = new Set(remoteItems.value.filter((item) => !item.downloaded).map((item) => item.id));
+  actionStatus.value = '';
   try {
     const env = await syncMaterialsIndex();
     hydrate(env.data);
-    const newlyAvailable = remoteItems.value.filter((item) => !item.downloaded && !knownAvailable.has(item.id));
-    actionStatus.value = `远程资料已同步，当前 ${remoteItems.value.length} 份，可直接缓存 ${stats.value.availableRemoteCount} 份。`;
-
-    if (
-      newlyAvailable.length > 0 &&
-      dingtalkWebhookEnabled.value &&
-      dingtalkWebhookUrl.value
-    ) {
-      const sample = newlyAvailable.slice(0, 5).map((item) => `- ${item.courseName} / ${item.fileName}`).join('\n');
-      try {
-        await sendDingtalkTest({
-          webhookUrl: dingtalkWebhookUrl.value,
-          secret: dingtalkWebhookSecret.value || undefined,
-          title: 'Celechron 资料同步提醒',
-          text: `### Celechron 资料同步提醒\n\n- 新增未缓存资料：${newlyAvailable.length} 份\n- 同步时间：${new Date().toLocaleString('zh-CN', { hour12: false })}\n${sample || '- 无示例'}`,
-        });
-        actionStatus.value += ' 已向 DingTalk 发送同步提醒。';
-      } catch (notifyError: any) {
-        actionStatus.value += ` DingTalk 提醒失败：${notifyError?.message || String(notifyError)}`;
-      }
-    }
+    if (!selectedScope.value) selectedScope.value = env.data.defaultScope === 'all' ? 'all' : 'current-week';
+    actionStatus.value = '资料索引已刷新，并回到了新的过滤结果。';
   } catch (error: any) {
     errorMsg.value = error?.message || String(error);
   } finally {
@@ -258,110 +225,97 @@ async function handleSyncRemote() {
   }
 }
 
-async function handleCacheRemote(item: RemoteMaterialAsset) {
-  if (remoteDownloadingId.value) return;
-  remoteDownloadingId.value = item.id;
-  actionStatus.value = `正在缓存 ${item.fileName}...`;
+async function addMaterial() {
+  isSubmitting.value = true;
+  errorMsg.value = '';
+  actionStatus.value = '';
   try {
-    const env = await cacheRemoteMaterial({
-      uploadId: item.uploadId,
-      referenceId: item.referenceId,
-      courseName: item.courseName,
-      title: item.title,
-      fileName: item.fileName,
-      sourceType: item.sourceType,
+    await downloadMaterialAsset({
+      courseName: draft.value.courseName.trim() || '手动资料',
+      title: draft.value.title.trim() || draft.value.fileName.trim() || '手动添加资料',
+      url: draft.value.url.trim(),
+      fileName: draft.value.fileName.trim() || undefined,
+      source: 'manual',
     });
-    actionStatus.value = `${item.fileName} 已缓存到本地`;
+    draft.value = { courseName: '', title: '', url: '', fileName: '' };
+    showAddForm.value = false;
     await loadMaterials();
-    const created = env.data.item as MaterialAsset | undefined;
-    if (created?.relativePath) {
-      selectedLocalPath.value = created.relativePath;
-    } else if (item.localRelativePath) {
-      selectedLocalPath.value = item.localRelativePath;
-    }
+    actionStatus.value = '资料已加入本地缓存。';
   } catch (error: any) {
-    actionStatus.value = error?.message || String(error);
+    errorMsg.value = error?.message || String(error);
   } finally {
-    remoteDownloadingId.value = '';
+    isSubmitting.value = false;
   }
 }
 
-async function handleOpen(item: MaterialAsset) {
+async function cacheRemote(item: RemoteMaterialAsset) {
   actionStatus.value = '';
+  errorMsg.value = '';
   try {
-    await openMaterialAsset(item.relativePath);
-  } catch (error: any) {
-    actionStatus.value = error?.message || String(error);
-  }
-}
-
-async function handleOpenRemote(item: RemoteMaterialAsset) {
-  if (item.localRelativePath) {
-    const local = items.value.find((asset) => asset.relativePath === item.localRelativePath);
-    if (local) {
-      selectLocalItem(local);
-      await handleOpen(local);
-      return;
-    }
-  }
-  await handleCacheRemote(item);
-}
-
-async function handleRemove(item: MaterialAsset) {
-  actionStatus.value = '';
-  try {
-    await removeMaterialCache(item.relativePath);
-    actionStatus.value = '已删除本地缓存';
-    if (selectedLocalPath.value === item.relativePath) {
-      selectedLocalPath.value = '';
-    }
+    await cacheRemoteMaterial({ remoteId: item.id });
     await loadMaterials();
+    selectedRemoteId.value = item.id;
+    actionStatus.value = `已缓存 ${item.title}`;
   } catch (error: any) {
-    actionStatus.value = error?.message || String(error);
+    errorMsg.value = error?.message || String(error);
   }
 }
 
-async function handleAnalyzeSelected() {
-  const item = selectedItem.value;
-  if (!item || aiLoading.value) return;
-  if (!zeroClawEndpoint.value) {
-    aiError.value = '请先在设置页填写 ZeroClaw Endpoint';
+async function openSelectedAsset() {
+  const asset = selectedPreviewAsset.value;
+  if (!asset) return;
+  try {
+    await openMaterialAsset(asset.relativePath);
+  } catch (error: any) {
+    errorMsg.value = error?.message || String(error);
+  }
+}
+
+async function removeSelectedAsset() {
+  const asset = selectedPreviewAsset.value;
+  if (!asset) return;
+  try {
+    await removeMaterialCache(asset.relativePath);
+    await loadMaterials();
+    actionStatus.value = `已删除 ${asset.title}`;
+  } catch (error: any) {
+    errorMsg.value = error?.message || String(error);
+  }
+}
+
+async function analyzeSelected() {
+  const asset = selectedPreviewAsset.value;
+  if (!asset) {
+    aiError.value = '请先选择已缓存的资料。';
     return;
   }
+  if (!zeroClawEndpoint.value) {
+    navigateToSettings();
+    return;
+  }
+
   aiLoading.value = true;
   aiError.value = '';
+  aiMarkdown.value = '';
   try {
-    let excerpt = '';
-    if (previewMode.value === 'text') {
-      if (!previewText.value) {
-        await loadTextPreview(item);
-      }
-      excerpt = previewText.value;
-    }
-
+    const textEnv = previewMode.value === 'text'
+      ? await readMaterialText(asset.relativePath, 22000)
+      : null;
     const env = await runAiAnalysis({
       baseUrl: zeroClawEndpoint.value,
       apiKey: zeroClawApiKey.value || undefined,
-      prompt: previewMode.value === 'text'
-        ? '请阅读给定课程资料片段，输出中文学习摘要、重点概念、可能考点和建议的复习顺序。引用时只引用必要短句。'
-        : '请基于资料元数据，给出中文学习建议、推荐预习方法和需要人工打开原文件确认的风险点。',
+      prompt: '请基于当前资料生成中文学习摘要、重点概念和复习建议。',
       context: {
-        material: {
-          courseName: item.courseName,
-          title: item.title,
-          fileName: item.fileName,
-          mimeType: item.mimeType,
-          sizeBytes: item.sizeBytes,
-          updatedAt: item.updatedAt,
-          previewMode: previewMode.value,
-          truncated: previewTruncated.value,
-        },
-        excerpt,
+        title: asset.title,
+        courseName: asset.courseName,
+        fileName: asset.fileName,
+        previewMode: previewMode.value,
+        content: textEnv?.data?.content || '',
       },
     });
     aiMarkdown.value = env.data.markdown || '';
     if (!aiMarkdown.value) {
-      aiError.value = 'ZeroClaw 已响应，但未返回可展示的 markdown 内容';
+      aiError.value = 'ZeroClaw 已响应，但没有返回可展示内容。';
     }
   } catch (error: any) {
     aiError.value = error?.message || String(error);
@@ -370,591 +324,415 @@ async function handleAnalyzeSelected() {
   }
 }
 
-function handleMaterialsFocus(event: Event) {
-  const detail = (event as CustomEvent<{ relativePath?: string; remoteId?: string }>).detail || {};
-  if (detail.relativePath) {
-    const local = items.value.find((item) => item.relativePath === detail.relativePath);
-    if (local) {
-      selectLocalItem(local);
-      return;
-    }
+watch(selectedPreviewAsset, async (asset) => {
+  previewText.value = '';
+  previewTruncated.value = false;
+  if (!asset || previewMode.value !== 'text') return;
+  previewLoading.value = true;
+  try {
+    const env = await readMaterialText(asset.relativePath, 30000);
+    previewText.value = env.data.content || '';
+    previewTruncated.value = Boolean(env.data.truncated);
+  } catch (error: any) {
+    errorMsg.value = error?.message || String(error);
+  } finally {
+    previewLoading.value = false;
   }
-  if (detail.remoteId) {
-    const remote = remoteItems.value.find((item) => item.id === detail.remoteId);
-    if (remote?.localRelativePath) {
-      const local = items.value.find((item) => item.relativePath === remote.localRelativePath);
-      if (local) {
-        selectLocalItem(local);
-      }
-    }
-  }
-}
-
-watch(selectedItem, (item) => {
-  loadTextPreview(item);
 }, { immediate: true });
 
-watch(accountScope, () => {
-  loadMaterials();
-});
+watch([visibleRemoteItems, visibleLocalItems], ([remoteList, localList]) => {
+  if (!remoteList.some((item) => item.id === selectedRemoteId.value)) {
+    selectedRemoteId.value = remoteList[0]?.id || '';
+  }
+  if (!localList.some((item) => item.relativePath === selectedLocalPath.value)) {
+    selectedLocalPath.value = localList[0]?.relativePath || '';
+  }
+}, { immediate: true });
 
-onMounted(() => {
-  loadMaterials();
-  window.addEventListener('celechron:materials-focus', handleMaterialsFocus as EventListener);
-});
-
-onUnmounted(() => {
-  window.removeEventListener('celechron:materials-focus', handleMaterialsFocus as EventListener);
-});
+onMounted(loadMaterials);
+watch(accountScope, loadMaterials);
 </script>
 
 <template>
-  <div class="materials-view">
-    <header class="materials-header">
+  <div class="page-shell materials-view">
+    <header class="page-header">
       <div>
         <h1>资料</h1>
-        <p>统一管理课程课件、讲稿和本地缓存。现已接入学在浙大资料索引同步、本地预览，以及结合 ZeroClaw 的资料分析。</p>
+        <p class="page-subtitle">默认落到 {{ weekLabel || '本周' }}，来源顺序按智云课堂优先聚合。</p>
       </div>
-      <div class="materials-actions">
-        <button class="action-btn" @click="loadMaterials">刷新本地</button>
-        <button class="action-btn" :disabled="isSyncing" @click="handleSyncRemote">
-          {{ isSyncing ? '同步中...' : '同步远程资料' }}
-        </button>
-        <button class="action-btn primary" @click="showAddForm = !showAddForm">
-          {{ showAddForm ? '收起' : '添加资料' }}
-        </button>
-      </div>
+      <ActionPill tone="accent" :disabled="isSyncing" @click="syncRemoteMaterials">
+        {{ isSyncing ? '同步中…' : '同步远程资料' }}
+      </ActionPill>
     </header>
 
-    <section class="stats-grid">
-      <article class="panel stat-card">
-        <span class="stat-label">本地缓存</span>
-        <strong>{{ stats.localCount }}</strong>
-        <span class="stat-desc">已下载并可离线查看</span>
-      </article>
-      <article class="panel stat-card">
-        <span class="stat-label">远程索引</span>
-        <strong>{{ stats.remoteCount }}</strong>
-        <span class="stat-desc">来自学在浙大当前课程</span>
-      </article>
-      <article class="panel stat-card">
-        <span class="stat-label">待缓存</span>
-        <strong>{{ stats.availableRemoteCount }}</strong>
-        <span class="stat-desc">上次同步 {{ formatTime(lastSyncedAt) }}</span>
-      </article>
-    </section>
-
-    <section class="panel search-panel">
-      <input v-model="search" class="search-input" placeholder="搜索课程名、资料标题或文件名" />
-      <span class="search-meta">本地 {{ localKeywordItems.length }} 份 / 远程 {{ remoteKeywordItems.length }} 份</span>
-    </section>
-
-    <section v-if="showAddForm" class="panel form-panel">
-      <div class="form-grid">
-        <input v-model="draft.courseName" class="form-input" placeholder="课程名" />
-        <input v-model="draft.title" class="form-input" placeholder="资料标题" />
-        <input v-model="draft.fileName" class="form-input" placeholder="文件名（可选）" />
-        <input v-model="draft.url" class="form-input form-input-wide" placeholder="可下载 URL" />
-      </div>
-      <div class="form-actions">
-        <span class="hint">手动 URL 仍可直接缓存；donor 风格的学在浙大资料请点“同步远程资料”。</span>
-        <button class="action-btn primary" :disabled="isSubmitting" @click="handleDownload">
-          {{ isSubmitting ? '下载中...' : '下载并缓存' }}
-        </button>
-      </div>
-    </section>
-
-    <div v-if="actionStatus" class="status-banner">{{ actionStatus }}</div>
-    <div v-if="errorMsg" class="status-banner error">{{ errorMsg }}</div>
-    <div v-if="warnings.length" class="status-banner warning">
-      <strong>同步提示：</strong>
-      <span>{{ warnings.join('；') }}</span>
+    <div class="materials-stats">
+      <InlineStat label="本周可看" :value="String(summaryStats.currentWeek)" emphasis />
+      <InlineStat label="已缓存" :value="String(summaryStats.cached)" />
+      <InlineStat label="远程总数" :value="String(summaryStats.remoteTotal)" />
+      <InlineStat label="上次同步" :value="summaryStats.lastSynced" />
     </div>
 
-    <section v-if="isLoading" class="panel empty-panel">
-      <p>资料索引加载中...</p>
-    </section>
+    <StatusBanner v-if="errorMsg" tone="danger" title="资料失败">
+      {{ errorMsg }}
+    </StatusBanner>
+    <StatusBanner v-else-if="actionStatus" tone="success" title="操作完成">
+      {{ actionStatus }}
+    </StatusBanner>
+    <StatusBanner v-for="warning in warnings" :key="warning" tone="warning" title="同步警告">
+      {{ warning }}
+    </StatusBanner>
 
-    <section v-else class="materials-layout">
-      <div class="materials-column">
-        <article class="panel list-panel">
-          <div class="list-header">
-            <h2>本地缓存</h2>
-            <span>{{ localKeywordItems.length }} 份</span>
-          </div>
-          <div v-if="groupedLocalItems.length === 0" class="empty-inline">
-            暂无本地资料，可先同步远程索引或手动添加 URL。
-          </div>
-          <div v-else class="materials-groups">
-            <article v-for="group in groupedLocalItems" :key="group.courseName" class="course-group">
-              <div class="group-header">
-                <h3>{{ group.courseName }}</h3>
-                <span>{{ group.assets.length }} 份</span>
-              </div>
-              <div class="asset-list">
-                <div
-                  v-for="item in group.assets"
-                  :key="item.relativePath"
-                  class="asset-row local"
-                  :class="{ active: item.relativePath === selectedLocalPath }"
-                  @click="selectLocalItem(item)"
-                >
-                  <div class="asset-main">
-                    <strong>{{ item.title }}</strong>
-                    <p>{{ item.fileName }}</p>
-                    <div class="asset-meta">
-                      <span>{{ formatBytes(item.sizeBytes) }}</span>
-                      <span>{{ formatTime(item.updatedAt) }}</span>
-                      <span v-if="item.sourceUrl">已记录来源</span>
-                    </div>
-                  </div>
-                  <div class="asset-actions" @click.stop>
-                    <button class="mini-btn" @click="handleOpen(item)">打开</button>
-                    <button class="mini-btn danger" @click="handleRemove(item)">删除</button>
-                  </div>
-                </div>
-              </div>
-            </article>
-          </div>
-        </article>
+    <SectionCard title="过滤" subtitle="先筛来源，再看内容。" dense>
+      <div class="filters-layout">
+        <SegmentedFilter
+          v-model="selectedScope"
+          :options="[
+            { value: 'current-week', label: weekLabel || '本周' },
+            { value: 'all', label: '全部资料' },
+          ]"
+        />
+        <SegmentedFilter v-model="selectedSource" :options="sourceOptions" />
+        <SegmentedFilter v-model="selectedCourse" :options="courseOptions" />
+      </div>
+      <div class="filters-search-row">
+        <input v-model="search" class="input-field" placeholder="搜索课程名、标题、来源" />
+        <ActionPill @click="showAddForm = !showAddForm">
+          {{ showAddForm ? '收起手动添加' : '手动添加资料' }}
+        </ActionPill>
+      </div>
+      <form v-if="showAddForm" class="manual-form" @submit.prevent="addMaterial">
+        <input v-model="draft.courseName" class="input-field" placeholder="课程名" />
+        <input v-model="draft.title" class="input-field" placeholder="标题" />
+        <input v-model="draft.fileName" class="input-field" placeholder="文件名（可选）" />
+        <input v-model="draft.url" class="input-field manual-form__wide" placeholder="资料链接" required />
+        <div class="manual-form__actions">
+          <ActionPill type="submit" tone="accent" :disabled="isSubmitting">{{ isSubmitting ? '添加中…' : '添加并缓存' }}</ActionPill>
+        </div>
+      </form>
+    </SectionCard>
 
-        <article class="panel list-panel">
-          <div class="list-header">
-            <h2>远程资料</h2>
-            <span>{{ remoteKeywordItems.length }} 份</span>
-          </div>
-          <div v-if="groupedRemoteItems.length === 0" class="empty-inline">
-            还没有远程资料索引。请先登录并点击“同步远程资料”。
-          </div>
-          <div v-else class="materials-groups">
-            <article v-for="group in groupedRemoteItems" :key="`${group.courseName}-remote`" class="course-group">
-              <div class="group-header">
-                <h3>{{ group.courseName }}</h3>
-                <span>{{ group.assets.length }} 份</span>
-              </div>
-              <div class="asset-list">
-                <div v-for="item in group.assets" :key="item.id" class="asset-row remote">
-                  <div class="asset-main">
+    <div v-if="isLoading" class="materials-layout">
+      <SectionCard title="加载中" subtitle="正在读取资料索引。">
+        <div class="state-card">请稍候，正在恢复本地缓存与远程列表。</div>
+      </SectionCard>
+    </div>
+
+    <div v-else class="materials-layout">
+      <div class="materials-content">
+        <SectionCard title="远程资料" subtitle="内容优先，缓存作为操作结果。">
+          <div v-if="visibleRemoteItems.length === 0" class="state-card">当前过滤条件下没有远程资料。</div>
+          <div v-else class="remote-list">
+            <article
+              v-for="item in visibleRemoteItems"
+              :key="item.id"
+              class="remote-item"
+              :class="{ active: item.id === selectedRemoteId }"
+              @click="selectedRemoteId = item.id"
+            >
+              <div class="remote-item__main">
+                <div class="remote-item__head">
+                  <div class="remote-item__title-block">
+                    <span class="badge accent">{{ sourceLabelMap[item.sourceType] || item.sourceType }}</span>
                     <strong>{{ item.title }}</strong>
-                    <p>{{ item.fileName }}</p>
-                    <div class="asset-meta">
-                      <span>{{ materialSourceLabel(item.sourceType) }}</span>
-                      <span>{{ formatBytes(item.sizeBytes) }}</span>
-                      <span>{{ formatTime(item.updatedAt) }}</span>
-                    </div>
                   </div>
-                  <div class="asset-actions">
-                    <span class="badge" :class="item.downloaded ? 'success' : 'muted'">
-                      {{ item.downloaded ? '已缓存' : '远程' }}
+                  <div class="remote-item__badges">
+                    <span class="badge" :class="item.weekBucket === 'current' ? 'success' : ''">
+                      {{ item.weekBucket === 'current' ? (weekLabel || '本周') : item.weekBucket === 'other' ? '其他周' : '未知周' }}
                     </span>
-                    <button class="mini-btn" :disabled="remoteDownloadingId === item.id" @click="handleOpenRemote(item)">
-                      {{ item.downloaded ? '打开' : (remoteDownloadingId === item.id ? '缓存中...' : '缓存') }}
-                    </button>
+                    <span class="badge" :class="item.downloaded ? 'accent' : ''">{{ item.downloaded ? '已缓存' : '远程' }}</span>
                   </div>
                 </div>
+                <p>{{ item.courseName }} · {{ formatTime(item.updatedAt) }} · {{ formatBytes(item.sizeBytes || 0) }}</p>
+                <small>{{ item.fileName }}</small>
+              </div>
+              <div class="remote-item__actions">
+                <ActionPill v-if="item.downloaded" @click.stop="selectedLocalPath = item.localRelativePath || ''">查看缓存</ActionPill>
+                <ActionPill v-else tone="accent" @click.stop="cacheRemote(item)">缓存</ActionPill>
               </div>
             </article>
           </div>
-        </article>
+        </SectionCard>
+
+        <SectionCard title="本地缓存" subtitle="次级区，只收已经落盘的资料。" dense>
+          <details class="local-cache" :open="visibleLocalItems.length <= 8">
+            <summary>已缓存 {{ visibleLocalItems.length }} 项</summary>
+            <div v-if="visibleLocalItems.length === 0" class="state-card">暂无本地缓存资料。</div>
+            <div v-else class="local-list">
+              <button
+                v-for="item in visibleLocalItems"
+                :key="item.relativePath"
+                type="button"
+                class="local-item"
+                :class="{ active: item.relativePath === selectedLocalPath }"
+                @click="selectedLocalPath = item.relativePath"
+              >
+                <strong>{{ item.title }}</strong>
+                <span>{{ item.courseName }}</span>
+                <small>{{ item.fileName }}</small>
+              </button>
+            </div>
+          </details>
+        </SectionCard>
       </div>
 
-      <aside class="panel preview-panel">
-        <div class="preview-header">
-          <div>
-            <h2>{{ selectedItem?.title || '预览与分析' }}</h2>
-            <p v-if="selectedItem">{{ selectedItem.courseName }} / {{ selectedItem.fileName }}</p>
-            <p v-else>选择一份本地资料后，可直接预览并结合 ZeroClaw 做学习分析。</p>
+      <div class="materials-preview-column">
+        <SectionCard title="预览" subtitle="桌面端固定在右侧，移动端下沉到列表之后。">
+          <div class="preview-actions">
+            <span class="badge" :class="selectedPreviewAsset ? 'accent' : ''">
+              {{ selectedPreviewAsset ? '已选中缓存资料' : '尚未缓存' }}
+            </span>
+            <div class="preview-actions__buttons">
+              <ActionPill v-if="selectedPreviewAsset" @click="openSelectedAsset">外部打开</ActionPill>
+              <ActionPill v-if="selectedPreviewAsset" tone="danger" @click="removeSelectedAsset">删除缓存</ActionPill>
+            </div>
           </div>
-          <div v-if="selectedItem" class="preview-actions">
-            <button class="mini-btn" @click="handleOpen(selectedItem)">外部打开</button>
-            <button class="mini-btn primary" :disabled="aiLoading || !selectedItem" @click="handleAnalyzeSelected">
-              {{ aiLoading ? '分析中...' : '结合资料分析' }}
-            </button>
-          </div>
-        </div>
 
-        <div v-if="!selectedItem" class="empty-inline large">
-          当前没有选中本地资料。
-        </div>
+          <div v-if="selectedPreviewAsset" class="preview-shell">
+            <header class="preview-shell__meta">
+              <strong>{{ selectedPreviewAsset.title }}</strong>
+              <p>{{ selectedPreviewAsset.courseName }} · {{ selectedPreviewAsset.fileName }}</p>
+            </header>
 
-        <template v-else>
-          <div class="preview-card">
-            <template v-if="previewMode === 'image'">
+            <div v-if="previewMode === 'image'" class="preview-body">
               <img :src="previewUrl" class="preview-image" alt="资料预览" />
-            </template>
-            <template v-else-if="previewMode === 'pdf'">
-              <iframe :src="previewUrl" class="preview-frame" title="PDF 预览"></iframe>
-            </template>
-            <template v-else-if="previewMode === 'text'">
-              <div v-if="previewLoading" class="empty-inline">文本预览加载中...</div>
-              <pre v-else class="preview-text">{{ previewText || '文本预览为空' }}</pre>
-              <div v-if="previewTruncated" class="preview-hint">文本过长，当前仅展示前 30000 个字符，AI 分析也将基于该截断片段。</div>
-            </template>
-            <template v-else>
-              <div class="empty-inline large">当前文件类型暂不支持内嵌预览，请使用“外部打开”。</div>
-            </template>
+            </div>
+            <div v-else-if="previewMode === 'pdf' || previewMode === 'web'" class="preview-body">
+              <iframe :src="previewUrl" class="preview-frame" title="资料预览"></iframe>
+            </div>
+            <div v-else-if="previewMode === 'text'" class="preview-body">
+              <div v-if="previewLoading" class="state-card">正在读取文本内容…</div>
+              <pre v-else class="preview-text">{{ previewText || '文本内容为空。' }}</pre>
+              <p v-if="previewTruncated" class="helper-text">文本过长，当前仅展示前 30000 个字符。</p>
+            </div>
+            <div v-else class="state-card">当前文件类型不支持内嵌预览，请用“外部打开”。</div>
           </div>
+          <div v-else-if="selectedRemoteItem?.previewImageUrls?.length" class="preview-remote-gallery">
+            <p class="helper-text">该智云课堂资料尚未缓存，先展示可用预览图。</p>
+            <img
+              v-for="url in selectedRemoteItem.previewImageUrls.slice(0, 6)"
+              :key="url"
+              :src="url"
+              class="preview-remote-image"
+              alt="远程预览图"
+            />
+          </div>
+          <div v-else class="state-card">选中远程资料后，可在这里查看缓存内容或预览状态。</div>
+        </SectionCard>
 
-          <div v-if="aiError" class="status-banner error">{{ aiError }}</div>
-          <article class="analysis-panel">
-            <div class="analysis-header">
-              <h3>ZeroClaw 综合分析</h3>
-              <span>{{ zeroClawEndpoint ? '已配置' : '未配置 Endpoint' }}</span>
-            </div>
-            <div v-if="aiMarkdown" class="analysis-markdown">{{ aiMarkdown }}</div>
-            <div v-else class="empty-inline large">
-              {{ zeroClawEndpoint ? '点击“结合资料分析”后将在这里展示学习摘要、重点概念和复习建议。' : '请先到设置页配置 ZeroClaw Endpoint。' }}
-            </div>
-          </article>
-        </template>
-      </aside>
-    </section>
+        <SectionCard title="AI 综合分析" subtitle="未配置 ZeroClaw 时直接去设置。">
+          <div class="ai-actions">
+            <ActionPill v-if="zeroClawEndpoint" tone="accent" :disabled="aiLoading" @click="analyzeSelected">
+              {{ aiLoading ? '分析中…' : '结合资料分析' }}
+            </ActionPill>
+            <ActionPill v-else tone="warning" @click="navigateToSettings">去设置</ActionPill>
+          </div>
+          <StatusBanner v-if="aiError" tone="warning" title="AI 提示">
+            {{ aiError }}
+          </StatusBanner>
+          <article v-if="aiMarkdown" class="ai-markdown">{{ aiMarkdown }}</article>
+          <div v-else class="state-card">
+            {{ zeroClawEndpoint ? '选择一份已缓存资料后即可生成学习摘要、重点概念和复习建议。' : '尚未配置 ZeroClaw Endpoint，点击“去设置”完成接入。' }}
+          </div>
+        </SectionCard>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .materials-view {
-  padding: 2rem 2.5rem 6rem;
-  max-width: 1400px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
   gap: 1rem;
-  color: var(--text-main);
 }
 
-.materials-header,
-.list-header,
-.group-header,
-.preview-header,
-.analysis-header,
-.materials-actions,
-.form-actions,
-.asset-actions,
-.preview-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.materials-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
-.materials-header {
-  align-items: flex-start;
-}
-
-.materials-header h1,
-.list-header h2,
-.group-header h3,
-.preview-header h2,
-.analysis-header h3 {
-  margin: 0;
-}
-
-.materials-header p,
-.preview-header p,
-.search-meta,
-.hint,
-.asset-meta,
-.asset-main p,
-.stat-desc,
-.stat-label,
-.preview-hint,
-.analysis-header span {
-  color: var(--text-muted);
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-.stat-card {
+.filters-layout,
+.filters-search-row,
+.preview-actions,
+.preview-actions__buttons,
+.ai-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.stat-card strong {
-  font-size: 2rem;
-  line-height: 1;
-}
-
-.panel {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 20px;
-  padding: 1.1rem 1.25rem;
-  backdrop-filter: blur(14px);
-}
-
-.search-panel {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.7rem;
   align-items: center;
 }
 
-.search-input,
-.form-input {
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
-  color: var(--input-color);
-  border-radius: 14px;
-  padding: 0.85rem 1rem;
-  font-size: 0.95rem;
+.filters-search-row {
+  margin-top: 0.8rem;
 }
 
-.search-input {
+.filters-search-row .input-field {
   flex: 1;
 }
 
-.form-grid {
+.manual-form {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
+  gap: 0.7rem;
+  margin-top: 0.8rem;
 }
 
-.form-input-wide {
+.manual-form__wide,
+.manual-form__actions {
   grid-column: 1 / -1;
-}
-
-.status-banner {
-  padding: 0.9rem 1rem;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
-  color: var(--accent-blue);
-  border: 1px solid color-mix(in srgb, var(--accent-blue) 24%, transparent);
-}
-
-.status-banner.error {
-  background: color-mix(in srgb, var(--accent-red) 10%, transparent);
-  color: var(--accent-red);
-  border-color: color-mix(in srgb, var(--accent-red) 22%, transparent);
-}
-
-.status-banner.warning {
-  background: color-mix(in srgb, var(--accent-amber) 12%, transparent);
-  color: var(--accent-amber);
-  border-color: color-mix(in srgb, var(--accent-amber) 24%, transparent);
 }
 
 .materials-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.85fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
   gap: 1rem;
   align-items: start;
 }
 
-.materials-column,
-.materials-groups,
-.asset-list,
-.preview-panel,
-.analysis-panel {
+.materials-content,
+.materials-preview-column,
+.remote-list,
+.local-list {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 0.8rem;
 }
 
-.list-panel {
-  min-height: 280px;
-}
-
-.asset-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+.remote-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem;
   align-items: center;
-  padding: 1rem;
-  border: 1px solid var(--panel-border);
-  border-radius: 16px;
-  background: var(--panel-bg);
-}
-
-.asset-row.local {
-  width: 100%;
-  text-align: left;
+  padding: 0.9rem 0.2rem;
+  border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
-  border: 1px solid var(--panel-border);
 }
 
-.asset-row.local.active {
-  border-color: color-mix(in srgb, var(--accent-blue) 45%, var(--panel-border));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-blue) 18%, transparent);
+.remote-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
-.asset-main {
+.remote-item.active {
+  background: var(--surface-2);
+  border-radius: var(--radius-card-sm);
+  padding: 0.9rem;
+  border-bottom-color: transparent;
+}
+
+.remote-item__main,
+.remote-item__title-block,
+.preview-shell__meta {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.25rem;
 }
 
-.asset-main strong,
-.asset-main p {
-  margin: 0;
-}
-
-.asset-main p {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.asset-meta {
+.remote-item__head,
+.remote-item__badges {
   display: flex;
-  gap: 0.75rem;
   flex-wrap: wrap;
-  font-size: 0.84rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
 }
 
-.badge {
-  border-radius: 999px;
-  padding: 0.25rem 0.7rem;
-  font-size: 0.78rem;
-  border: 1px solid transparent;
+.remote-item__main p,
+.remote-item__main small,
+.preview-shell__meta p {
+  margin: 0;
+  color: var(--text-secondary);
 }
 
-.badge.success {
-  background: color-mix(in srgb, var(--accent-green) 14%, transparent);
-  color: var(--accent-green);
-  border-color: color-mix(in srgb, var(--accent-green) 24%, transparent);
-}
-
-.badge.muted {
-  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
-  color: var(--text-muted);
-  border-color: color-mix(in srgb, var(--text-muted) 22%, transparent);
-}
-
-.action-btn,
-.mini-btn {
-  border: none;
+.local-cache summary {
   cursor: pointer;
-  border-radius: 12px;
-  padding: 0.72rem 1rem;
-  background: var(--panel-bg);
-  color: var(--text-main);
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
-.mini-btn {
-  padding: 0.55rem 0.85rem;
-  border: 1px solid var(--panel-border);
+.local-list {
+  margin-top: 0.8rem;
 }
 
-.action-btn:hover,
-.mini-btn:hover {
-  transform: translateY(-1px);
+.local-item {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  border-radius: var(--radius-card-sm);
+  padding: 0.85rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  cursor: pointer;
 }
 
-.action-btn:disabled,
-.mini-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-  transform: none;
+.local-item.active {
+  border-color: var(--accent-border);
+  background: var(--surface-accent);
 }
 
-.action-btn.primary,
-.mini-btn.primary {
-  background: var(--accent-blue);
-  color: var(--text-inverse);
+.local-item span,
+.local-item small {
+  color: var(--text-secondary);
 }
 
-.mini-btn.danger {
-  color: var(--accent-red);
+.preview-shell,
+.preview-body,
+.preview-remote-gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
 }
 
-.preview-card {
-  border: 1px solid var(--panel-border);
-  border-radius: 18px;
-  background: var(--panel-bg);
-  min-height: 280px;
-  overflow: hidden;
+.preview-frame {
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card-sm);
+  background: var(--surface-3);
 }
 
 .preview-image,
-.preview-frame {
-  display: block;
+.preview-remote-image {
   width: 100%;
-  min-height: 440px;
-  border: none;
-  background: var(--bg-main);
-}
-
-.preview-image {
+  border-radius: var(--radius-card-sm);
+  border: 1px solid var(--border-subtle);
   object-fit: contain;
-  max-height: 560px;
+  background: var(--surface-3);
 }
 
-.preview-text {
-  margin: 0;
-  padding: 1rem 1.1rem;
+.preview-text,
+.ai-markdown {
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--text-main);
-  font-size: 0.92rem;
-  line-height: 1.6;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card-sm);
+  background: var(--surface-2);
+  padding: 0.95rem;
+  color: var(--text-primary);
+  max-height: 420px;
+  overflow: auto;
 }
 
-.analysis-panel {
-  border-top: 1px solid var(--panel-border);
-  padding-top: 1rem;
-}
-
-.analysis-markdown {
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.7;
-  color: var(--text-main);
-}
-
-.empty-panel,
-.empty-inline {
-  text-align: center;
-  color: var(--text-muted);
-}
-
-.empty-inline.large {
-  min-height: 140px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed var(--panel-border);
-  border-radius: 16px;
-}
-
-@media (max-width: 1080px) {
+@media (max-width: 980px) {
   .materials-layout {
     grid-template-columns: 1fr;
   }
+
+  .materials-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-@media (max-width: 780px) {
-  .materials-view {
-    padding: 1.25rem 1rem 6rem;
-  }
-
-  .materials-header,
-  .search-panel,
-  .preview-header,
-  .materials-actions,
-  .form-actions,
-  .asset-row,
-  .asset-actions,
-  .preview-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .stats-grid,
-  .form-grid {
+@media (max-width: 720px) {
+  .manual-form,
+  .materials-stats {
     grid-template-columns: 1fr;
   }
 
-  .preview-image,
-  .preview-frame {
-    min-height: 320px;
+  .remote-item {
+    grid-template-columns: 1fr;
   }
 }
 </style>

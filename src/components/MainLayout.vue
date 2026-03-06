@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
-import { Clock, CalendarDays, CheckSquare, GraduationCap, Settings, Search, LibraryBig } from 'lucide-vue-next';
+import { CalendarDays, CheckSquare, Clock, GraduationCap, LibraryBig, Search, Settings } from 'lucide-vue-next';
 
-import FlowView from './views/FlowView.vue';
 import CalendarView from './views/CalendarView.vue';
-import TaskView from './views/TaskView.vue';
-import ScholarView from './views/ScholarView.vue';
-import OptionView from './views/OptionView.vue';
+import FlowView from './views/FlowView.vue';
 import MaterialsView from './views/MaterialsView.vue';
+import OptionView from './views/OptionView.vue';
+import ScholarView from './views/ScholarView.vue';
+import TaskView from './views/TaskView.vue';
 
 const activeTab = ref('scholar');
 
@@ -47,31 +47,28 @@ onUnmounted(() => {
   <div class="main-layout">
     <div class="layout-content">
       <KeepAlive>
-        <component
-          :is="tabs.find(t => t.id === activeTab)?.component"
-          class="view-container fade-enter-active"
-          :key="activeTab"
-        />
+        <component :is="tabs.find((tab) => tab.id === activeTab)?.component" :key="activeTab" class="view-container" />
       </KeepAlive>
     </div>
 
-    <nav class="bottom-nav glass-panel">
+    <nav class="bottom-nav" aria-label="主导航">
       <div class="nav-items-container">
         <button
           v-for="tab in tabs"
           :key="tab.id"
+          type="button"
           class="nav-item"
           :class="{ active: activeTab === tab.id }"
           @click="activeTab = tab.id"
         >
-          <component :is="tab.icon" class="nav-icon" :size="24" :stroke-width="activeTab === tab.id ? 2.5 : 2" />
+          <component :is="tab.icon" class="nav-icon" :size="22" :stroke-width="activeTab === tab.id ? 2.4 : 2" />
           <span class="nav-label">{{ tab.label }}</span>
         </button>
 
-        <div class="nav-item logout-btn" @click="triggerGlobalSearch" title="全局搜索 (Cmd+K)">
-           <Search class="nav-icon" :size="24" />
-           <span class="nav-label">搜索</span>
-        </div>
+        <button type="button" class="nav-item nav-search" title="全局搜索 (Cmd+K)" @click="triggerGlobalSearch">
+          <Search class="nav-icon" :size="22" :stroke-width="2" />
+          <span class="nav-label">搜索</span>
+        </button>
       </div>
     </nav>
   </div>
@@ -79,20 +76,16 @@ onUnmounted(() => {
 
 <style scoped>
 .main-layout {
-  display: flex;
-  flex-direction: column;
   height: 100%;
   width: 100%;
-  color: var(--text-main);
   position: relative;
-  z-index: 10;
+  color: var(--text-primary);
 }
 
 .layout-content {
-  flex: 1;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-bottom: 80px;
 }
 
 .view-container {
@@ -101,112 +94,89 @@ onUnmounted(() => {
 
 .bottom-nav {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 80px;
-  background: var(--nav-bg, rgba(15, 23, 42, 0.4));
-  backdrop-filter: blur(40px) saturate(150%);
-  -webkit-backdrop-filter: blur(40px) saturate(150%);
-  border-top: 1px solid var(--nav-border, rgba(255, 255, 255, 0.08));
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 100;
-  box-shadow: 0 -4px 24px var(--nav-shadow, rgba(0, 0, 0, 0.1));
+  inset: auto 0 0;
+  z-index: 25;
+  min-height: var(--nav-height);
+  padding: 0.75rem max(1rem, var(--safe-left)) calc(0.75rem + var(--safe-bottom)) max(1rem, var(--safe-right));
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  border-top: 1px solid var(--nav-border);
+  backdrop-filter: blur(24px) saturate(135%);
+  box-shadow: var(--nav-shadow);
 }
 
 .nav-items-container {
-  display: flex;
-  width: 100%;
-  max-width: 600px;
-  justify-content: space-around;
-  align-items: center;
-  padding: 0 1rem;
+  width: min(100%, 960px);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.45rem;
 }
 
 .nav-item {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--nav-text);
+  min-height: 3.2rem;
+  border-radius: 1.15rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  background: transparent;
-  border: none;
-  color: var(--nav-text, #94a3b8);
+  gap: 0.28rem;
   cursor: pointer;
-  padding: 8px 12px;
-  border-radius: 12px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
 .nav-item:hover {
-  color: var(--nav-text-hover, #e2e8f0);
-  background: var(--nav-hover-bg, rgba(255, 255, 255, 0.1));
+  background: var(--nav-hover-bg);
+  color: var(--nav-text-hover);
 }
 
 .nav-item.active {
-  color: var(--accent-blue, #38bdf8);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  transform: translateY(-1px);
 }
 
-.nav-item.active .nav-icon {
-  transform: translateY(-2px);
-  filter: drop-shadow(0 0 8px var(--nav-icon-shadow, rgba(56, 189, 248, 0.5)));
+.nav-icon {
+  flex-shrink: 0;
 }
 
 .nav-label {
   font-size: 0.75rem;
-  font-weight: 500;
-  letter-spacing: 0.5px;
+  font-weight: 600;
 }
 
-.logout-btn:hover {
-  color: var(--accent-amber);
-}
-
-.fade-enter-active {
-  animation: fadeIn 0.4s ease-out forwards;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (min-width: 768px) {
-  .main-layout {
-    flex-direction: row;
+@media (max-width: 720px) {
+  .nav-items-container {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
 
-  .layout-content {
-    padding-bottom: 0;
-    padding-left: 100px;
-  }
-
+@media (min-width: 900px) {
   .bottom-nav {
-    top: 0;
-    left: 0;
-    width: 100px;
-    height: 100%;
+    inset: 0 auto 0 0;
+    width: var(--desktop-sidebar-width);
+    min-height: 100vh;
+    padding: calc(1rem + var(--safe-top)) 0.8rem calc(1rem + var(--safe-bottom));
     border-top: none;
-    border-right: 1px solid var(--nav-border, rgba(255, 255, 255, 0.08));
-    box-shadow: 4px 0 24px var(--nav-shadow, rgba(0, 0, 0, 0.1));
+    border-right: 1px solid var(--nav-border);
   }
 
   .nav-items-container {
-    flex-direction: column;
-    justify-content: flex-start;
-    padding: 2rem 0;
-    gap: 1.5rem;
     height: 100%;
+    grid-template-columns: 1fr;
+    width: 100%;
+    align-content: start;
   }
 
-  .nav-item {
-    width: 80%;
-  }
-
-  .logout-btn {
+  .nav-search {
     margin-top: auto;
+  }
+
+  .layout-content {
+    padding-left: calc(var(--desktop-sidebar-width) + 0.35rem);
   }
 }
 </style>

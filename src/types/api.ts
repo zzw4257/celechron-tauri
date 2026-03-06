@@ -2,6 +2,9 @@ import type { TermDescriptor } from '../utils/semester';
 
 export type MetaSource = 'network' | 'cache' | 'unknown';
 export type RetakePolicy = 'first' | 'highest';
+export type MaterialsScope = 'current-week' | 'all';
+export type MaterialSourceType = 'classroom' | 'activity' | 'homework';
+export type MaterialWeekBucket = 'current' | 'other' | 'unknown';
 
 export interface ApiMeta {
   source: MetaSource;
@@ -98,9 +101,20 @@ export interface TimetablePayload {
   timetable: any[];
 }
 
+export interface TodoItem {
+  id: string;
+  title: string;
+  courseName: string;
+  course_name?: string;
+  endTime: string;
+  end_time?: string;
+  status: string;
+  linkUrl?: string | null;
+  raw?: Record<string, unknown>;
+}
+
 export interface TodosPayload {
-  [key: string]: any;
-  todo_list: any[];
+  todo_list: TodoItem[];
 }
 
 export interface GpaPreviewInput {
@@ -127,15 +141,19 @@ export interface MaterialAsset {
   exists: boolean;
 }
 
+export interface CourseFilter {
+  id: string;
+  label: string;
+  count: number;
+}
+
 export interface RemoteMaterialAsset {
   id: string;
-  uploadId: number;
-  referenceId: number;
   courseId: number;
   courseName: string;
   title: string;
   fileName: string;
-  sourceType: string;
+  sourceType: MaterialSourceType | string;
   sourceUrl: string;
   fallbackSourceUrl: string;
   mimeType?: string | null;
@@ -143,9 +161,15 @@ export interface RemoteMaterialAsset {
   updatedAt: number;
   downloaded: boolean;
   localRelativePath?: string | null;
+  weekBucket: MaterialWeekBucket | string;
+  previewImageUrls?: string[];
 }
 
 export interface MaterialsPayload {
+  defaultScope: MaterialsScope;
+  weekLabel?: string | null;
+  courseFilters: CourseFilter[];
+  sourcePriority: string[];
   items: MaterialAsset[];
   remoteItems: RemoteMaterialAsset[];
   lastSyncedAt?: number | null;
@@ -163,12 +187,7 @@ export interface DownloadMaterialInput {
 }
 
 export interface RemoteMaterialDownloadInput {
-  uploadId: number;
-  referenceId: number;
-  courseName: string;
-  title: string;
-  fileName: string;
-  sourceType?: string;
+  remoteId: string;
 }
 
 export interface MaterialTextPayload {

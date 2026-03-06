@@ -1,370 +1,334 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
-import PomodoroWidget from "../PomodoroWidget.vue";
-import { fetchTodos } from "../../services/api";
+import { computed, onMounted, ref, watch } from 'vue';
+import PomodoroWidget from '../PomodoroWidget.vue';
+import ActionPill from '../ui/ActionPill.vue';
+import InlineStat from '../ui/InlineStat.vue';
+import SectionCard from '../ui/SectionCard.vue';
+import StatusBanner from '../ui/StatusBanner.vue';
+import { fetchTodos } from '../../services/api';
+import type { TodoItem } from '../../types/api';
+import { usePreferences } from '../../composables/usePreferences';
+
+interface TaskBucketItem {
+  id: string;
+  title: string;
+  courseName: string;
+  deadlineLabel: string;
+  remainLabel: string;
+  endMs: number;
+  linkUrl?: string | null;
+}
 
 const isLoading = ref(true);
 const isOffline = ref(false);
-const offlineTime = ref("");
-
-interface TaskItem {
-  id: string;
-  name: string;
-  course: string;
-  deadline: string;
-  daysLeft: number;
-}
-
-const categorizedTasks = ref({
-  overdue: [] as TaskItem[],
-  today: [] as TaskItem[],
-  week: [] as TaskItem[],
-  later: [] as TaskItem[],
+const errorMsg = ref('');
+const copiedId = ref('');
+const offlineTime = ref('');
+const buckets = ref<Record<'overdue' | 'today' | 'week' | 'later', TaskBucketItem[]>>({
+  overdue: [],
+  today: [],
+  week: [],
+  later: [],
 });
 
-function formatDaysLeft(days: number) {
-  if (days < 0) return `逾期 ${Math.abs(Math.ceil(days))} 天`;
-  if (days === 0) return "今天内截止";
-  if (days === 1) return "明天截止";
-  return `${Math.ceil(days)} 天后`;
+const { accountScope } = usePreferences();
+
+const summary = computed(() => ({
+  total: Object.values(buckets.value).reduce((acc, items) => acc + items.length, 0),
+  today: buckets.value.today.length,
+  week: buckets.value.week.length,
+  overdue: buckets.value.overdue.length,
+}));
+
+function normalizeTodoTime(todo: TodoItem) {
+  const raw = todo.endTime || todo.end_time;
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-async function fetchTasks() {
+function formatRemain(ms: number) {
+  const diffDays = ms / 86400000;
+  if (diffDays < 0) return `已逾期 ${Math.abs(Math.ceil(diffDays))} 天`;
+  if (diffDays <= 1) return '24 小时内截止';
+  if (diffDays <= 7) return `${Math.ceil(diffDays)} 天内截止`;
+  return `${Math.ceil(diffDays)} 天后`;
+}
+
+async function copyLink(item: TaskBucketItem) {
+  if (!item.linkUrl) return;
+  await navigator.clipboard.writeText(item.linkUrl);
+  copiedId.value = item.id;
+  window.setTimeout(() => {
+    if (copiedId.value === item.id) copiedId.value = '';
+  }, 1600);
+}
+
+async function loadTasks() {
+  isLoading.value = true;
+  errorMsg.value = '';
+  copiedId.value = '';
+
   try {
-    isLoading.value = true;
     const env = await fetchTodos();
-    const response: any = env.data;
-    
-    if (env._meta && env._meta.source === "cache") {
-      isOffline.value = true;
-      offlineTime.value = new Date(env._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false });
-    } else {
-      isOffline.value = false;
-    }
+    isOffline.value = env._meta?.source === 'cache';
+    offlineTime.value = env._meta?.timestamp
+      ? new Date(env._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false })
+      : '';
 
-    const list = response.todo_list || [];
+    const nextBuckets: Record<'overdue' | 'today' | 'week' | 'later', TaskBucketItem[]> = {
+      overdue: [],
+      today: [],
+      week: [],
+      later: [],
+    };
+
     const now = Date.now();
-
-    const overdue: TaskItem[] = [];
-    const today: TaskItem[] = [];
-    const week: TaskItem[] = [];
-    const later: TaskItem[] = [];
-
-    list.forEach((t: any) => {
-      const timeMs = new Date(t.end_time).getTime();
-      const daysLeft = (timeMs - now) / 86400000;
-      
-      const item: TaskItem = {
-        id: t.id || Math.random().toString(),
-        name: t.title,
-        course: t.course_name,
-        deadline: new Date(t.end_time).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' }),
-        daysLeft
+    for (const todo of env.data.todo_list) {
+      const deadline = normalizeTodoTime(todo);
+      if (!deadline) continue;
+      const diffMs = deadline.getTime() - now;
+      const item: TaskBucketItem = {
+        id: todo.id,
+        title: todo.title || '未命名任务',
+        courseName: todo.courseName || todo.course_name || '学在浙大',
+        deadlineLabel: deadline.toLocaleString('zh-CN', {
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }),
+        remainLabel: formatRemain(diffMs),
+        endMs: deadline.getTime(),
+        linkUrl: todo.linkUrl || null,
       };
 
-      if (daysLeft < 0) {
-        overdue.push(item);
-      } else if (daysLeft <= 1) {
-        today.push(item);
-      } else if (daysLeft <= 7) {
-        week.push(item);
-      } else {
-        later.push(item);
-      }
-    });
+      if (diffMs < 0) nextBuckets.overdue.push(item);
+      else if (diffMs <= 86400000) nextBuckets.today.push(item);
+      else if (diffMs <= 7 * 86400000) nextBuckets.week.push(item);
+      else nextBuckets.later.push(item);
+    }
 
-    // Sort heavily
-    overdue.sort((a, b) => a.daysLeft - b.daysLeft);
-    today.sort((a, b) => a.daysLeft - b.daysLeft);
-    week.sort((a, b) => a.daysLeft - b.daysLeft);
-    later.sort((a, b) => a.daysLeft - b.daysLeft);
+    for (const list of Object.values(nextBuckets)) {
+      list.sort((left, right) => left.endMs - right.endMs || left.title.localeCompare(right.title));
+    }
 
-    categorizedTasks.value = { overdue, today, week, later };
-  } catch (e) {
-    console.error("Failed to fetch tasks:", e);
+    buckets.value = nextBuckets;
+  } catch (error: any) {
+    errorMsg.value = error?.message || String(error);
   } finally {
     isLoading.value = false;
   }
 }
 
-onMounted(() => {
-  fetchTasks();
-});
+onMounted(loadTasks);
+watch(accountScope, loadTasks);
 </script>
 
 <template>
-  <div class="task-view">
-    <header class="task-header">
-      <h1>任务</h1>
+  <div class="page-shell task-view">
+    <header class="page-header">
+      <div>
+        <h1>任务</h1>
+        <p class="page-subtitle">后端已标准化截止时间与真实链接，只在可访问时才显示复制入口。</p>
+      </div>
+      <span class="badge" :class="isOffline ? 'warning' : 'accent'">{{ isOffline ? '缓存模式' : '实时同步' }}</span>
     </header>
 
-    <div class="pomodoro-wrap">
-      <PomodoroWidget />
+    <div class="task-grid">
+      <SectionCard title="节奏区" subtitle="番茄钟保留，但压缩到次级位置。" dense>
+        <PomodoroWidget />
+      </SectionCard>
+
+      <SectionCard title="任务摘要" subtitle="首屏只保留真正影响节奏的信息。" dense>
+        <div class="task-stats">
+          <InlineStat label="总任务" :value="String(summary.total)" emphasis />
+          <InlineStat label="24h 内" :value="String(summary.today)" />
+          <InlineStat label="7 天内" :value="String(summary.week)" />
+          <InlineStat label="已逾期" :value="String(summary.overdue)" />
+        </div>
+      </SectionCard>
     </div>
 
-    <!-- Offline Warning Banner -->
-    <div v-if="isOffline" class="offline-banner">
-      <span class="offline-icon">⚠️</span>
-      <div class="offline-text">
-        <strong>网络连接异常，暂未同步最新数据。</strong>
-        当前显示的是缓存在本地的数据 (更新于: {{ offlineTime }})
-      </div>
-    </div>
+    <StatusBanner v-if="errorMsg" tone="danger" title="同步失败">
+      {{ errorMsg }}
+    </StatusBanner>
+    <StatusBanner v-else-if="isOffline && offlineTime" tone="warning" title="缓存回退">
+      当前展示的是本地缓存，更新时间 {{ offlineTime }}。
+    </StatusBanner>
+    <StatusBanner v-else-if="copiedId" tone="success" title="复制成功">
+      已复制任务链接，可以直接粘贴给同学或在浏览器打开。
+    </StatusBanner>
 
-    <div v-if="isLoading && !isOffline" class="loading-state">
-      正在同步学在浙大...
-    </div>
+    <SectionCard v-if="isLoading" title="加载中" subtitle="正在拉取待办和截止时间。">
+      <div class="state-card">请稍候，正在整理任务优先级。</div>
+    </SectionCard>
 
-    <!-- Empty State -->
-    <div class="empty-state" v-if="!isLoading && Object.values(categorizedTasks).every(arr => arr.length === 0)">
-      🎉 太棒了！最近没有任何待办任务！
-    </div>
+    <SectionCard
+      v-else-if="summary.total === 0"
+      title="暂无待办"
+      subtitle="当前没有需要你跟进的任务。"
+    >
+      <div class="state-card">最近没有截止项，适合回头处理资料或复盘成绩。</div>
+    </SectionCard>
 
-    <div class="task-sections">
-      <!-- Overdue -->
-      <section class="section-card overdue-sec" v-if="categorizedTasks.overdue.length > 0">
-        <div class="section-title">🚨 已逾期 ({{ categorizedTasks.overdue.length }})</div>
+    <div v-else class="task-sections">
+      <SectionCard v-if="buckets.overdue.length" title="已逾期" subtitle="优先回收。" dense>
         <div class="task-list">
-          <div class="task-card urgent" v-for="t in categorizedTasks.overdue" :key="t.id">
-            <div class="task-info">
-              <span class="task-name">{{ t.name }}</span>
-              <span class="task-course">{{ t.course }}</span>
+          <article v-for="item in buckets.overdue" :key="item.id" class="task-card overdue">
+            <div class="task-card__main">
+              <div class="task-card__head">
+                <strong>{{ item.title }}</strong>
+                <span class="badge danger">{{ item.remainLabel }}</span>
+              </div>
+              <p>{{ item.courseName }}</p>
             </div>
-            <div class="task-meta">
-              <span class="task-ddl">{{ t.deadline }}</span>
-              <span class="task-days badge-red">{{ formatDaysLeft(t.daysLeft) }}</span>
+            <div class="task-card__meta">
+              <time>{{ item.deadlineLabel }}</time>
+              <ActionPill v-if="item.linkUrl" tone="danger" @click="copyLink(item)">复制链接</ActionPill>
             </div>
-          </div>
+          </article>
         </div>
-      </section>
+      </SectionCard>
 
-      <!-- Today -->
-      <section class="section-card today-sec" v-if="categorizedTasks.today.length > 0">
-        <div class="section-title">🔥 今天截止 ({{ categorizedTasks.today.length }})</div>
+      <SectionCard v-if="buckets.today.length" title="24 小时内截止" subtitle="今天和明天需要处理。" dense>
         <div class="task-list">
-          <div class="task-card urgent" v-for="t in categorizedTasks.today" :key="t.id">
-            <div class="task-info">
-              <span class="task-name">{{ t.name }}</span>
-              <span class="task-course">{{ t.course }}</span>
+          <article v-for="item in buckets.today" :key="item.id" class="task-card today">
+            <div class="task-card__main">
+              <div class="task-card__head">
+                <strong>{{ item.title }}</strong>
+                <span class="badge warning">{{ item.remainLabel }}</span>
+              </div>
+              <p>{{ item.courseName }}</p>
             </div>
-            <div class="task-meta">
-              <span class="task-ddl">{{ t.deadline }}</span>
-              <span class="task-days badge-orange">{{ formatDaysLeft(t.daysLeft) }}</span>
+            <div class="task-card__meta">
+              <time>{{ item.deadlineLabel }}</time>
+              <ActionPill v-if="item.linkUrl" tone="warning" @click="copyLink(item)">复制链接</ActionPill>
             </div>
-          </div>
+          </article>
         </div>
-      </section>
+      </SectionCard>
 
-      <!-- Week -->
-      <section class="section-card week-sec" v-if="categorizedTasks.week.length > 0">
-        <div class="section-title">📅 一周内 ({{ categorizedTasks.week.length }})</div>
+      <SectionCard v-if="buckets.week.length" title="7 天内" subtitle="本周排程。" dense>
         <div class="task-list">
-          <div class="task-card" v-for="t in categorizedTasks.week" :key="t.id">
-            <div class="task-info">
-              <span class="task-name">{{ t.name }}</span>
-              <span class="task-course">{{ t.course }}</span>
+          <article v-for="item in buckets.week" :key="item.id" class="task-card week">
+            <div class="task-card__main">
+              <div class="task-card__head">
+                <strong>{{ item.title }}</strong>
+                <span class="badge accent">{{ item.remainLabel }}</span>
+              </div>
+              <p>{{ item.courseName }}</p>
             </div>
-            <div class="task-meta">
-              <span class="task-ddl">{{ t.deadline }}</span>
-              <span class="task-days badge-blue">{{ formatDaysLeft(t.daysLeft) }}</span>
+            <div class="task-card__meta">
+              <time>{{ item.deadlineLabel }}</time>
+              <ActionPill v-if="item.linkUrl" tone="accent" @click="copyLink(item)">复制链接</ActionPill>
             </div>
-          </div>
+          </article>
         </div>
-      </section>
+      </SectionCard>
 
-      <!-- Later -->
-      <section class="section-card later-sec" v-if="categorizedTasks.later.length > 0">
-        <div class="section-title">📌 以后 ({{ categorizedTasks.later.length }})</div>
+      <SectionCard v-if="buckets.later.length" title="更晚" subtitle="暂时不抢首屏注意力。" dense>
         <div class="task-list">
-          <div class="task-card" v-for="t in categorizedTasks.later" :key="t.id">
-            <div class="task-info">
-              <span class="task-name">{{ t.name }}</span>
-              <span class="task-course">{{ t.course }}</span>
+          <article v-for="item in buckets.later" :key="item.id" class="task-card later">
+            <div class="task-card__main">
+              <div class="task-card__head">
+                <strong>{{ item.title }}</strong>
+                <span class="badge">{{ item.remainLabel }}</span>
+              </div>
+              <p>{{ item.courseName }}</p>
             </div>
-            <div class="task-meta">
-              <span class="task-ddl">{{ t.deadline }}</span>
-              <span class="task-days badge-gray">{{ formatDaysLeft(t.daysLeft) }}</span>
+            <div class="task-card__meta">
+              <time>{{ item.deadlineLabel }}</time>
+              <ActionPill v-if="item.linkUrl" @click="copyLink(item)">复制链接</ActionPill>
             </div>
-          </div>
+          </article>
         </div>
-      </section>
+      </SectionCard>
     </div>
   </div>
 </template>
 
 <style scoped>
-.task-view {
-  --task-title-start: var(--text-main);
-  --task-title-end: var(--text-main);
-  --task-offline-bg: color-mix(in srgb, var(--accent-amber) 15%, transparent);
-  --task-offline-border: color-mix(in srgb, var(--accent-amber) 30%, transparent);
-  --task-offline-text: var(--accent-amber);
-  --task-offline-strong: var(--accent-amber);
-  --task-state-text: var(--text-muted);
-  --task-section-bg: var(--card-bg);
-  --task-section-border: var(--card-border);
-  --task-section-title: var(--text-main);
-  --task-card-bg: color-mix(in srgb, var(--panel-bg) 70%, transparent);
-  --task-card-border: var(--panel-border);
-  --task-card-hover-bg: color-mix(in srgb, var(--card-bg) 45%, transparent);
-  --task-name: var(--text-main);
-  --task-course: var(--text-muted);
-  --task-ddl: var(--text-muted);
-
-  padding: 2rem 2.5rem 6rem;
-  max-width: 950px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.task-header h1 {
-  font-size: 1.8rem;
-  font-weight: 700;
-  margin: 0;
-  color: var(--task-title-start);
-  background: linear-gradient(135deg, var(--task-title-start), var(--task-title-end));
-  background-clip: text;
-  -webkit-background-clip: text;
-}
-@supports (-webkit-background-clip: text) {
-  .task-header h1 {
-    -webkit-text-fill-color: transparent;
-  }
-}
-
-.pomodoro-wrap {
-  margin-bottom: 1.5rem;
-}
-
-/* Offline Banner */
-.offline-banner {
-  background: var(--task-offline-bg);
-  border: 1px solid var(--task-offline-border);
-  color: var(--task-offline-text);
-  padding: 12px 16px;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.85rem;
-  line-height: 1.4;
-  backdrop-filter: blur(12px);
-  animation: fade-in 0.4s ease-out;
-}
-.offline-icon {
-  font-size: 1.3rem;
-  animation: pulse-warn 2s infinite;
-}
-.offline-text strong {
-  display: block;
-  color: var(--task-offline-strong);
-  margin-bottom: 2px;
-}
-
-@keyframes pulse-warn {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.7; transform: scale(1.1); }
-}
-
-.loading-state, .empty-state {
-  text-align: center;
-  color: var(--task-state-text);
-  padding: 3rem 0;
-  font-size: 1.1rem;
-}
-
-.task-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-/* Section Card styled for Liquid Glass */
-.section-card {
-  background: var(--task-section-bg);
-  border: 1px solid var(--task-section-border);
-  border-radius: 20px;
-  padding: 1.5rem;
-  backdrop-filter: blur(12px);
-}
-.section-title {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: var(--task-section-title);
-  margin-bottom: 1rem;
-}
-
+.task-view,
+.task-sections,
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 1rem;
+}
+
+.task-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.95fr) minmax(0, 1.05fr);
+  gap: 1rem;
+}
+
+.task-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
 }
 
 .task-card {
-  background: var(--task-card-bg);
-  border: 1px solid var(--task-card-border);
-  border-radius: 14px;
-  padding: 1rem 1.2rem;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem;
   align-items: center;
-  transition: transform 0.2s, background 0.2s;
-  cursor: default;
-}
-.task-card:hover {
-  background: var(--task-card-hover-bg);
-  transform: translateX(4px);
-}
-.task-card.urgent {
-  border-left: 4px solid #ef4444;
+  padding: 0.95rem 0.2rem;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
-.task-info {
+.task-card:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.task-card__main {
+  min-width: 0;
+}
+
+.task-card__head {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.task-name {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--task-name);
-}
-.task-course {
-  font-size: 0.75rem;
-  color: var(--task-course);
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
 }
 
-.task-meta {
+.task-card__head strong {
+  color: var(--text-primary);
+}
+
+.task-card__main p,
+.task-card__meta time {
+  margin: 0.28rem 0 0;
+  color: var(--text-secondary);
+}
+
+.task-card__meta {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-}
-.task-ddl {
-  font-size: 0.8rem;
-  color: var(--task-ddl);
-  font-variant-numeric: tabular-nums;
+  align-items: center;
+  gap: 0.7rem;
 }
 
-.badge-red { background: rgba(239,68,68,0.2); color: #fca5a5; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; }
-.badge-orange { background: rgba(249,115,22,0.2); color: #fdba74; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; }
-.badge-blue { background: rgba(56,189,248,0.2); color: #7dd3fc; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; }
-.badge-gray { background: rgba(148,163,184,0.2); color: #cbd5e1; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; font-weight: 600; }
+@media (max-width: 900px) {
+  .task-grid {
+    grid-template-columns: 1fr;
+  }
 
-@media (max-width: 600px) {
-  .task-view { padding: 1rem 1rem 6rem; }
-  .task-card { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .task-meta { align-items: flex-start; flex-direction: row-reverse; width: 100%; justify-content: space-between; }
+  .task-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-:global(html[data-theme='light']) .section-card {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-}
-:global(html[data-theme='light']) .badge-red { background: rgba(220, 38, 38, 0.1); color: #dc2626; }
-:global(html[data-theme='light']) .badge-orange { background: rgba(234, 88, 12, 0.1); color: #ea580c; }
-:global(html[data-theme='light']) .badge-blue { background: rgba(2, 132, 199, 0.1); color: #0284c7; }
-:global(html[data-theme='light']) .badge-gray { background: rgba(100, 116, 139, 0.1); color: #475569; }
+@media (max-width: 720px) {
+  .task-card {
+    grid-template-columns: 1fr;
+  }
 
+  .task-card__meta {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+}
 </style>

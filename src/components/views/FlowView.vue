@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
-import { LiquidGlass } from '@wxperia/liquid-glass-vue';
-import { fetchTimetable, fetchTodos } from "../../services/api";
-import { usePreferences } from "../../composables/usePreferences";
-import { resolveCurrentTimetableTerm } from "../../utils/semester";
-import { buildCourseOccurrences, startOfLocalDay } from "../../utils/timetable";
+import { computed, onMounted, ref, watch } from 'vue';
+import SectionCard from '../ui/SectionCard.vue';
+import StatusBanner from '../ui/StatusBanner.vue';
+import { fetchTimetable, fetchTodos } from '../../services/api';
+import { usePreferences } from '../../composables/usePreferences';
+import { resolveCurrentTimetableTerm } from '../../utils/semester';
+import { buildCourseOccurrences, startOfLocalDay } from '../../utils/timetable';
 
 interface FlowItem {
   id: string;
@@ -13,85 +14,89 @@ interface FlowItem {
   subtitle: string;
   timeLabel: string;
   timeMs: number;
-  color: string;
+  tone: string;
 }
 
 const isLoading = ref(true);
 const items = ref<FlowItem[]>([]);
 const isOffline = ref(false);
-const DEFAULT_FLOW_COLORS = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#ec4899", "#eab308"];
-const FLOW_COLOR_TOKENS = ["--accent-blue", "--accent-purple", "--accent-amber", "--accent-green", "--accent-pink", "--accent-yellow"];
-const colors = ref<string[]>([...DEFAULT_FLOW_COLORS]);
-const { manualSemesterAnchors, timeConfigMode } = usePreferences();
+const errorMsg = ref('');
 
-function readCssVar(name: string, fallback: string) {
-  if (typeof window === "undefined") {
-    return fallback;
+const FLOW_TONES = [
+  'var(--accent-text)',
+  'var(--warning-text)',
+  'var(--success-text)',
+  'var(--danger-text)',
+];
+
+const { accountScope, manualSemesterAnchors, timeConfigMode } = usePreferences();
+
+const groupedItems = computed(() => {
+  const groups = new Map<string, FlowItem[]>();
+  for (const item of items.value) {
+    const key = item.timeLabel.split(' ')[0] || item.timeLabel;
+    const bucket = groups.get(key) || [];
+    bucket.push(item);
+    groups.set(key, bucket);
   }
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value || fallback;
-}
-
-function buildFlowColors() {
-  return DEFAULT_FLOW_COLORS.map((fallback, index) => readCssVar(FLOW_COLOR_TOKENS[index], fallback));
-}
+  return [...groups.entries()].map(([label, entries]) => ({ label, entries }));
+});
 
 function buildDateLabel(date: Date): string {
   const today = startOfLocalDay(new Date());
   const current = startOfLocalDay(date);
-  const diffDays = Math.round((current.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
-  if (diffDays === 0) {
-    return '今天';
-  }
-  if (diffDays === 1) {
-    return '明天';
-  }
+  const diffDays = Math.round((current.getTime() - today.getTime()) / 86400000);
+  if (diffDays === 0) return '今天';
+  if (diffDays === 1) return '明天';
   return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function normalizeTodoTime(value?: string) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 async function loadFlow() {
   isLoading.value = true;
   isOffline.value = false;
+  errorMsg.value = '';
 
   try {
-    const newItems: FlowItem[] = [];
+    const nextItems: FlowItem[] = [];
     const today = startOfLocalDay(new Date());
     const rangeEnd = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-    const terms = [resolveCurrentTimetableTerm(today), resolveCurrentTimetableTerm(rangeEnd)]
-      .filter((term, index, source) => source.findIndex((item) => item.name === term.name) === index);
+    const terms = [resolveCurrentTimetableTerm(today), resolveCurrentTimetableTerm(rangeEnd)].filter(
+      (term, index, source) => source.findIndex((candidate) => candidate.name === term.name) === index,
+    );
 
     const [todoEnv, ...timetableEnvs] = await Promise.all([
       fetchTodos(),
       ...terms.map((term) => fetchTimetable({ year: term.year, semester: term.timetableSemester })),
     ]);
 
-    if (todoEnv._meta?.source === 'cache') {
-      isOffline.value = true;
+    isOffline.value = [todoEnv, ...timetableEnvs].some((env) => env._meta?.source === 'cache');
+
+    for (const todo of todoEnv.data.todo_list) {
+      const dueAt = normalizeTodoTime(todo.endTime || todo.end_time);
+      if (!dueAt) continue;
+      const dueMs = dueAt.getTime();
+      if (dueMs < today.getTime() || dueMs >= rangeEnd.getTime()) continue;
+      nextItems.push({
+        id: `task-${todo.id}`,
+        type: 'task',
+        title: todo.title || '未命名任务',
+        subtitle: todo.courseName || todo.course_name || '学在浙大',
+        timeLabel: `${buildDateLabel(dueAt)} ${dueAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
+        timeMs: dueMs,
+        tone: 'var(--danger-text)',
+      });
     }
 
-    for (const todo of todoEnv.data.todo_list || []) {
-      const dueAt = new Date(todo.end_time).getTime();
-      if (dueAt > today.getTime() && dueAt < rangeEnd.getTime()) {
-        newItems.push({
-          id: `task-${todo.id}`,
-          type: 'task',
-          title: todo.title,
-          subtitle: todo.course_name || '学在浙大',
-          timeLabel: new Date(todo.end_time).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-          timeMs: dueAt,
-          color: readCssVar('--accent-red', '#ef4444'),
-        });
-      }
-    }
-
-    const courseColors = new Map<string, string>();
-    let colorIdx = 0;
+    const courseTones = new Map<string, string>();
+    let toneIndex = 0;
 
     for (const timetableEnv of timetableEnvs) {
-      if (timetableEnv._meta?.source === 'cache') {
-        isOffline.value = true;
-      }
-
       const occurrences = buildCourseOccurrences(timetableEnv.data, {
         manualAnchors: manualSemesterAnchors.value,
         timeConfigMode: timeConfigMode.value,
@@ -99,259 +104,152 @@ async function loadFlow() {
 
       for (const occurrence of occurrences) {
         const startAt = occurrence.startDateTime;
-        if (!startAt) {
-          continue;
-        }
+        if (!startAt) continue;
         const startMs = startAt.getTime();
-        if (startMs < today.getTime() || startMs >= rangeEnd.getTime()) {
-          continue;
-        }
+        if (startMs < today.getTime() || startMs >= rangeEnd.getTime()) continue;
 
         const colorKey = occurrence.session.xkkh || occurrence.session.courseName;
-        if (!courseColors.has(colorKey)) {
-          courseColors.set(colorKey, colors.value[colorIdx % colors.value.length]);
-          colorIdx += 1;
+        if (!courseTones.has(colorKey)) {
+          courseTones.set(colorKey, FLOW_TONES[toneIndex % FLOW_TONES.length]);
+          toneIndex += 1;
         }
 
-        newItems.push({
+        nextItems.push({
           id: `course-${occurrence.id}`,
           type: 'course',
           title: occurrence.session.courseName,
-          subtitle: occurrence.session.location || '无地点',
+          subtitle: occurrence.session.location || '地点待定',
           timeLabel: `${buildDateLabel(startAt)} ${occurrence.startSlot?.start || startAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
           timeMs: startMs,
-          color: courseColors.get(colorKey)!,
+          tone: courseTones.get(colorKey) || 'var(--accent-text)',
         });
       }
     }
 
-    newItems.sort((left, right) => left.timeMs - right.timeMs || left.title.localeCompare(right.title));
-    items.value = newItems;
-  } catch (error) {
-    console.error(error);
+    nextItems.sort((left, right) => left.timeMs - right.timeMs || left.title.localeCompare(right.title));
+    items.value = nextItems;
+  } catch (error: any) {
+    errorMsg.value = error?.message || String(error);
   } finally {
     isLoading.value = false;
   }
 }
 
-onMounted(() => {
-  colors.value = buildFlowColors();
-  loadFlow();
-});
+onMounted(loadFlow);
+watch(accountScope, loadFlow);
 </script>
 
 <template>
-  <div class="flow-view">
-    <header class="section-header">
-      <h2>接下来 <span class="section-subtitle">(Flow)</span></h2>
-      <div v-if="isOffline" class="offline-badge">离线模式</div>
+  <div class="page-shell flow-view">
+    <header class="page-header">
+      <div>
+        <h1>接下来</h1>
+        <p class="page-subtitle">统一消费 7 天内的任务和课表事件。</p>
+      </div>
+      <span class="badge" :class="isOffline ? 'warning' : 'accent'">{{ isOffline ? '缓存模式' : '实时数据' }}</span>
     </header>
 
-    <div v-if="isLoading" class="loading-state">
-      <div class="loader"></div>
-    </div>
+    <StatusBanner v-if="errorMsg" tone="danger" title="拉取失败">
+      {{ errorMsg }}
+    </StatusBanner>
 
-    <div v-else-if="items.length === 0" class="empty-state">
-      <span class="empty-icon">🌴</span>
-      <h3>近期暂无安排</h3>
-      <p>享受你的空闲时间吧！</p>
-    </div>
+    <SectionCard v-if="isLoading" title="加载中" subtitle="正在汇总未来 7 天安排。">
+      <div class="state-card">请稍候，正在整理课表与截止项。</div>
+    </SectionCard>
 
-    <div v-else class="timeline">
-      <div v-for="item in items" :key="item.id" class="timeline-item">
-        <div class="time-block">
-          <span class="time-dot" :style="{ background: item.color }"></span>
-          <span class="time-text">{{ item.timeLabel }}</span>
-        </div>
-        
-        <LiquidGlass
-          :displacement-scale="32"
-          :blur-amount="0.1"
-          :saturation="120"
-          :aberration-intensity="1"
-          :elasticity="0.25"
-          :corner-radius="16"
-          class="card-wrapper"
-        >
-          <div class="item-card" :style="{ '--accent': item.color }">
-            <span class="badge" :class="item.type">{{ item.type === 'task' ? 'DDL' : '课程' }}</span>
-            <div class="content">
-              <h4>{{ item.title }}</h4>
+    <SectionCard v-else-if="items.length === 0" title="近期为空" subtitle="未来 7 天暂时没有课程或截止任务。">
+      <div class="state-card">当前时段没有需要提醒的安排。</div>
+    </SectionCard>
+
+    <div v-else class="flow-groups">
+      <SectionCard v-for="group in groupedItems" :key="group.label" :title="group.label" dense>
+        <div class="flow-list">
+          <article v-for="item in group.entries" :key="item.id" class="flow-item">
+            <div class="flow-item__marker" :style="{ background: item.tone }"></div>
+            <div class="flow-item__main">
+              <div class="flow-item__head">
+                <strong>{{ item.title }}</strong>
+                <span class="badge" :class="item.type === 'task' ? 'danger' : 'accent'">
+                  {{ item.type === 'task' ? '任务' : '课程' }}
+                </span>
+              </div>
               <p>{{ item.subtitle }}</p>
             </div>
-          </div>
-        </LiquidGlass>
-      </div>
+            <time class="flow-item__time">{{ item.timeLabel }}</time>
+          </article>
+        </div>
+      </SectionCard>
     </div>
   </div>
 </template>
 
 <style scoped>
 .flow-view {
-  --flow-title: var(--text-main);
-  --flow-subtitle: var(--text-muted);
-  --flow-offline-bg: color-mix(in srgb, var(--accent-amber) 18%, transparent);
-  --flow-offline-text: var(--accent-amber);
-  --flow-offline-border: color-mix(in srgb, var(--accent-amber) 35%, transparent);
-  --flow-timeline-line: var(--panel-border);
-  --flow-time-text: var(--text-muted);
-  --flow-item-bg: color-mix(in srgb, var(--accent) 5%, transparent);
-  --flow-heading: var(--text-main);
-  --flow-muted: var(--text-muted);
-  --flow-state-text: var(--text-muted);
-  --flow-loader-border: var(--card-border);
-  --flow-loader-top: var(--accent-blue);
-
-  padding: 2rem 2.5rem 6rem;
-  max-width: 800px;
-  margin: 0 auto;
+  gap: 1rem;
 }
 
-.section-header {
+.flow-groups,
+.flow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.flow-item {
+  display: grid;
+  grid-template-columns: 0.5rem minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  align-items: center;
+  padding: 0.9rem 0.4rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.flow-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.flow-item__marker {
+  width: 0.5rem;
+  height: 100%;
+  min-height: 3.4rem;
+  border-radius: var(--radius-pill);
+}
+
+.flow-item__main {
+  min-width: 0;
+}
+
+.flow-item__head {
   display: flex;
   align-items: center;
+  gap: 0.55rem;
   justify-content: space-between;
-  margin-bottom: 2rem;
-}
-.section-header h2 {
-  font-size: 2rem;
-  margin: 0;
-  color: var(--flow-title);
 }
 
-.section-subtitle {
-  color: var(--flow-subtitle);
-  font-weight: 400;
-  font-size: 1.2rem;
+.flow-item__head strong {
+  color: var(--text-primary);
 }
 
-.offline-badge {
-  background: var(--flow-offline-bg);
-  color: var(--flow-offline-text);
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  border: 1px solid var(--flow-offline-border);
+.flow-item__main p,
+.flow-item__time {
+  margin: 0.2rem 0 0;
+  color: var(--text-secondary);
 }
 
-.timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  position: relative;
-}
-.timeline::before {
-  content: '';
-  position: absolute;
-  left: 6px;
-  top: 10px;
-  bottom: 0;
-  width: 2px;
-  background: linear-gradient(to bottom, var(--flow-timeline-line), transparent);
+.flow-item__time {
+  white-space: nowrap;
+  text-align: right;
 }
 
-.timeline-item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-left: 24px;
-  position: relative;
-  animation: fade-in 0.4s ease-out forwards;
-}
+@media (max-width: 720px) {
+  .flow-item {
+    grid-template-columns: 0.45rem minmax(0, 1fr);
+  }
 
-.time-block {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  position: relative;
-  left: -24px;
+  .flow-item__time {
+    grid-column: 2;
+    text-align: left;
+  }
 }
-.time-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  box-shadow: 0 0 10px currentColor;
-  border: 2px solid var(--bg-main);
-  z-index: 2;
-}
-.time-text {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--flow-time-text);
-}
-
-.card-wrapper {
-  width: 100%;
-}
-.item-card {
-  padding: 1.2rem;
-  display: flex;
-  align-items: flex-start;
-  gap: 15px;
-  background: var(--flow-item-bg);
-  border-left: 3px solid var(--accent);
-}
-.badge {
-  padding: 4px 8px;
-  border-radius: 8px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-.badge.course { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
-.badge.task { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-
-.content h4 {
-  margin: 0 0 4px;
-  font-size: 1.1rem;
-  color: var(--flow-heading);
-}
-.content p {
-  margin: 0;
-  color: var(--flow-muted);
-  font-size: 0.85rem;
-}
-
-.loading-state, .empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 400px;
-  color: var(--flow-state-text);
-  text-align: center;
-}
-
-.empty-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-
-.loader {
-  width: 30px;
-  height: 30px;
-  border: 3px solid var(--flow-loader-border);
-  border-radius: 50%;
-  border-top-color: var(--flow-loader-top);
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-@keyframes fade-in {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-:global(html[data-theme='light']) .badge.course {
-  background: rgba(2, 132, 199, 0.1);
-  color: #0284c7;
-}
-:global(html[data-theme='light']) .badge.task {
-  background: rgba(220, 38, 38, 0.1);
-  color: #dc2626;
-}
-:global(html[data-theme='light']) .item-card {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-}
-
 </style>

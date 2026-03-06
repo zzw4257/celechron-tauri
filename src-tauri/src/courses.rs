@@ -12,7 +12,10 @@ fn my_courses_base() -> &'static str {
 
 async fn courses_cookie(state: &AppState) -> Result<String, String> {
     let session = state.courses_session.lock().await;
-    session.as_ref().cloned().ok_or("学在浙大未登录".to_string())
+    session
+        .as_ref()
+        .cloned()
+        .ok_or("学在浙大未登录".to_string())
 }
 
 async fn courses_get_json(state: &AppState, url: &str) -> Result<Value, String> {
@@ -91,7 +94,10 @@ pub async fn get_learning_courses(state: &AppState) -> Result<Vec<Value>, String
     let mut items = Vec::new();
 
     loop {
-        let url = format!("{}&page={page}&page_size=100&showScorePassedStatus=false", my_courses_base());
+        let url = format!(
+            "{}&page={page}&page_size=100&showScorePassedStatus=false",
+            my_courses_base()
+        );
         let body = courses_get_json(state, &url).await?;
         if let Some(courses) = body.get("courses").and_then(Value::as_array) {
             items.extend(courses.iter().cloned());
@@ -106,7 +112,10 @@ pub async fn get_learning_courses(state: &AppState) -> Result<Vec<Value>, String
     Ok(items)
 }
 
-pub async fn get_course_activity_uploads(state: &AppState, course_id: i64) -> Result<Vec<Value>, String> {
+pub async fn get_course_activity_uploads(
+    state: &AppState,
+    course_id: i64,
+) -> Result<Vec<Value>, String> {
     let url = format!("https://courses.zju.edu.cn/api/courses/{course_id}/activities");
     let body = courses_get_json(state, &url).await?;
     let mut uploads = Vec::new();
@@ -120,7 +129,10 @@ pub async fn get_course_activity_uploads(state: &AppState, course_id: i64) -> Re
     Ok(uploads)
 }
 
-pub async fn get_course_homework_uploads(state: &AppState, course_id: i64) -> Result<Vec<Value>, String> {
+pub async fn get_course_homework_uploads(
+    state: &AppState,
+    course_id: i64,
+) -> Result<Vec<Value>, String> {
     let mut page = 1_i64;
     let mut uploads = Vec::new();
 
@@ -129,7 +141,8 @@ pub async fn get_course_homework_uploads(state: &AppState, course_id: i64) -> Re
             "https://courses.zju.edu.cn/api/courses/{course_id}/homework-activities?conditions=%7B%22itemsSortBy%22:%7B%22predicate%22:%22module%22,%22reverse%22:false%7D%7D&page={page}&page_size=20&reloadPage=false"
         );
         let body = courses_get_json(state, &url).await?;
-        if let Some(homework_activities) = body.get("homework_activities").and_then(Value::as_array) {
+        if let Some(homework_activities) = body.get("homework_activities").and_then(Value::as_array)
+        {
             for activity in homework_activities {
                 if let Some(activity_uploads) = activity.get("uploads").and_then(Value::as_array) {
                     uploads.extend(activity_uploads.iter().cloned());
@@ -152,9 +165,8 @@ pub async fn get_upload_download_response(
     reference_id: i64,
 ) -> Result<Response, String> {
     let cookie = courses_cookie(state).await?;
-    let primary_url = format!(
-        "https://courses.zju.edu.cn/api/uploads/reference/{reference_id}/blob"
-    );
+    let primary_url =
+        format!("https://courses.zju.edu.cn/api/uploads/reference/{reference_id}/blob");
     let fallback_url = format!("https://courses.zju.edu.cn/api/uploads/{upload_id}/blob");
 
     let primary = state
@@ -180,9 +192,6 @@ pub async fn get_upload_download_response(
     if fallback.status().is_success() {
         Ok(fallback)
     } else {
-        Err(format!(
-            "拉取资料失败: HTTP {}",
-            fallback.status().as_u16()
-        ))
+        Err(format!("拉取资料失败: HTTP {}", fallback.status().as_u16()))
     }
 }

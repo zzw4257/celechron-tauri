@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, provide } from 'vue';
+import { computed, onMounted, provide, ref } from 'vue';
 import Login from './components/Login.vue';
 import MainLayout from './components/MainLayout.vue';
 import SearchModal from './components/SearchModal.vue';
@@ -11,6 +11,11 @@ const { accountScope, bumpAccountScope } = usePreferences();
 
 const isLoggedIn = ref(false);
 const layoutKey = ref(0);
+const isMacDesktop = computed(() => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Macintosh|Mac OS X/i.test(ua) && !/iPhone|iPad|Android/i.test(ua);
+});
 
 onMounted(() => {
   applyTheme(currentTheme.value);
@@ -46,9 +51,9 @@ provide('appAccountSwitch', handleAccountSwitch);
 </script>
 
 <template>
-  <main class="app-container">
-    <div data-tauri-drag-region class="titlebar">
-      Celechron
+  <main class="app-shell" :class="{ 'has-titlebar': isMacDesktop }">
+    <div v-if="isMacDesktop" data-tauri-drag-region class="titlebar">
+      <span class="titlebar__label">Celechron</span>
     </div>
 
     <div class="mesh-background" aria-hidden="true">
@@ -58,7 +63,7 @@ provide('appAccountSwitch', handleAccountSwitch);
       <div class="blob blob-4"></div>
     </div>
 
-    <div class="app-ui-layer">
+    <div class="app-ui-layer" :style="{ '--titlebar-height': isMacDesktop ? '30px' : '0px' }">
       <Login v-if="!isLoggedIn" @login-success="handleLoginSuccess" />
       <MainLayout v-else :key="layoutKey" />
     </div>
@@ -68,32 +73,31 @@ provide('appAccountSwitch', handleAccountSwitch);
 </template>
 
 <style scoped>
-.app-container {
+.app-shell {
   height: 100vh;
   width: 100vw;
   position: relative;
   overflow: hidden;
-  background-color: var(--bg-main);
+  background: var(--bg-main);
 }
 
 .titlebar {
-  height: 28px;
-  width: 100%;
   position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 9999;
+  inset: 0 0 auto;
+  height: 30px;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   user-select: none;
 }
 
-.titlebar:hover {
-  cursor: default;
+.titlebar__label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .mesh-background {
@@ -106,64 +110,63 @@ provide('appAccountSwitch', handleAccountSwitch);
 .blob {
   position: absolute;
   border-radius: 50%;
-  filter: blur(80px);
-  animation: float 20s infinite ease-in-out alternate;
+  filter: blur(88px);
+  animation: float 22s infinite ease-in-out alternate;
 }
 
 .blob-1 {
-  width: 60vw;
-  height: 60vw;
-  background: radial-gradient(circle, var(--blob-1) 0%, transparent 70%);
-  top: -20vh;
+  width: 56vw;
+  height: 56vw;
+  background: radial-gradient(circle, var(--blob-1) 0%, transparent 68%);
   left: -10vw;
-  opacity: 0.7;
-  animation-delay: 0s;
+  top: -18vh;
 }
 
 .blob-2 {
-  width: 50vw;
-  height: 50vw;
-  background: radial-gradient(circle, var(--blob-2) 0%, transparent 70%);
-  bottom: -20vh;
-  right: -10vw;
-  opacity: 0.7;
+  width: 44vw;
+  height: 44vw;
+  background: radial-gradient(circle, var(--blob-2) 0%, transparent 68%);
+  right: -8vw;
+  bottom: -16vh;
   animation-delay: -5s;
 }
 
 .blob-3 {
-  width: 55vw;
-  height: 55vw;
+  width: 38vw;
+  height: 38vw;
   background: radial-gradient(circle, var(--blob-3) 0%, transparent 70%);
-  top: 30vh;
-  left: 40vw;
-  opacity: 0.6;
+  right: 14vw;
+  top: 14vh;
   animation-delay: -10s;
-  animation-duration: 25s;
 }
 
 .blob-4 {
-  width: 45vw;
-  height: 45vw;
+  width: 34vw;
+  height: 34vw;
   background: radial-gradient(circle, var(--blob-4) 0%, transparent 70%);
-  top: 10vh;
-  right: 20vw;
-  opacity: 0.5;
-  animation-delay: -15s;
-  animation-duration: 22s;
+  left: 24vw;
+  bottom: 10vh;
+  animation-delay: -14s;
 }
 
 .app-ui-layer {
   position: absolute;
   inset: 0;
   z-index: 10;
-  display: flex;
-  flex-direction: column;
+  padding-top: calc(var(--safe-top) + var(--titlebar-height));
 }
 
 @keyframes float {
-  0% { transform: translate(0, 0) scale(1); }
-  33% { transform: translate(4vw, 4vh) scale(1.08); }
-  66% { transform: translate(-4vw, 6vh) scale(0.94); }
-  100% { transform: translate(-2vw, -3vh) scale(1.04); }
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  50% {
+    transform: translate3d(4vw, 3vh, 0) scale(1.04);
+  }
+
+  100% {
+    transform: translate3d(-3vw, 5vh, 0) scale(0.94);
+  }
 }
 </style>

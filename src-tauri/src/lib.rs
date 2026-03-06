@@ -1,4 +1,5 @@
 mod api;
+mod classroom;
 mod courses;
 mod gpa;
 mod integrations;
@@ -22,6 +23,9 @@ use crate::term::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+
+const SCHOLAR_CACHE_FILE: &str = "cache_scholar_v2.json";
+const TODOS_CACHE_FILE: &str = "cache_todos_v2.json";
 use std::sync::Arc;
 #[cfg(desktop)]
 use tauri::Manager;
@@ -38,6 +42,7 @@ async fn login_zju_command(
 
     let zdbk_result = zdbk::login_zdbk(&state).await;
     let courses_result = courses::login_courses(&state).await;
+    let classroom_result = classroom::ClassroomSession::login(&state).await;
 
     let mut warnings = Vec::new();
     if let Err(error) = zdbk_result {
@@ -45,6 +50,9 @@ async fn login_zju_command(
     }
     if let Err(error) = courses_result {
         warnings.push(format!("学在浙大: {error}"));
+    }
+    if let Err(error) = classroom_result {
+        warnings.push(format!("智云课堂: {error}"));
     }
 
     if warnings.is_empty() {
@@ -67,7 +75,7 @@ async fn fetch_scholar_data(
     );
 
     if let Err(error) = transcript_r {
-        if let Some(cached) = cache_read_envelope(&app, "cache_scholar.json") {
+        if let Some(cached) = cache_read_envelope(&app, SCHOLAR_CACHE_FILE) {
             return Ok(cached);
         }
         return Err(error);
@@ -165,7 +173,7 @@ async fn fetch_scholar_data(
     });
 
     let env = envelope(payload, "network");
-    cache_write_envelope(&app, "cache_scholar.json", &env);
+    cache_write_envelope(&app, SCHOLAR_CACHE_FILE, &env);
     Ok(env)
 }
 
@@ -180,10 +188,9 @@ async fn fetch_timetable(
         .ok_or_else(|| format!("不支持的学期参数: {semester}"))?;
     let term = descriptor_from_parts(year.clone(), academic_semester);
     let cache_name = format!(
-        "cache_timetable_{}_{}.json",
+        "cache_timetable_v2_{}_{}.json",
         term.year, term.academic_semester
     );
-    let legacy_cache_name = format!("cache_timetable_{}_{}.json", year, semester);
 
     match zdbk::get_timetable(&state, &term.year, &term.timetable_semester).await {
         Ok(raw_timetable) => {
@@ -209,26 +216,93 @@ async fn fetch_timetable(
             if let Some(cached) = cache_read_envelope(&app, &cache_name) {
                 return Ok(cached);
             }
-            if legacy_cache_name != cache_name {
-                if let Some(cached) = cache_read_envelope(&app, &legacy_cache_name) {
-                    return Ok(cached);
-                }
-            }
             Err(error)
         }
     }
+}
+
+fn normalize_todo_item(todo: &Value) -> Option<Value> {
+    let title = todo.get("title").and_then(Value::as_str)?.trim().to_string();
+    if title.is_empty() {
+        return None;
+    }
+    let id = todo
+        .get("id")
+        .and_then(|value| value.as_str().map(str::to_string).or_else(|| value.as_i64().map(|v| v.to_string())))
+        .unwrap_or_else(|| format!("todo-{}", title));
+    let course_name = todo
+        .get("course_name")
+        .or_else(|| todo.get("courseName"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("学在浙大")
+        .to_string();
+    let end_time = todo
+        .get("end_time")
+        .or_else(|| todo.get("endTime"))
+        .or_else(|| todo.get("expires"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
+    let status = todo
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("pending")
+        .to_string();
+    let link_url = ["url", "html_url", "link", "link_url", "linkUrl"]
+        .iter()
+        .find_map(|key| todo.get(*key).and_then(Value::as_str).map(str::trim))
+        .filter(|value| value.starts_with("http://") || value.starts_with("https://"))
+        .map(str::to_string);
+
+    Some(json!({
+        "id": id,
+        "title": title,
+        "courseName": course_name,
+        "course_name": course_name,
+        "endTime": end_time,
+        "end_time": end_time,
+        "status": status,
+        "linkUrl": link_url,
+        "raw": todo,
+    }))
+}
+
+fn normalize_todos_payload(raw: Value) -> Value {
+    let mut todo_list = raw
+        .get("todo_list")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|todo| normalize_todo_item(&todo))
+        .collect::<Vec<_>>();
+
+    todo_list.sort_by(|left, right| {
+        let left_time = left.get("endTime").and_then(Value::as_str).unwrap_or("");
+        let right_time = right.get("endTime").and_then(Value::as_str).unwrap_or("");
+        left_time.cmp(right_time)
+    });
+
+    json!({
+        "todo_list": todo_list,
+    })
 }
 
 #[tauri::command]
 async fn fetch_todos(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<Value, String> {
     match courses::get_todos(&state).await {
         Ok(data) => {
-            let env = envelope(data, "network");
-            cache_write_envelope(&app, "cache_todos.json", &env);
+            let env = envelope(normalize_todos_payload(data), "network");
+            cache_write_envelope(&app, TODOS_CACHE_FILE, &env);
             Ok(env)
         }
         Err(error) => {
-            if let Some(cached) = cache_read_envelope(&app, "cache_todos.json") {
+            if let Some(cached) = cache_read_envelope(&app, TODOS_CACHE_FILE) {
                 return Ok(cached);
             }
             Err(error)

@@ -17,7 +17,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-webpki-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "cookies", "rustls-tls-webpki-roots"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 regex = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
@@ -27,6 +27,7 @@ hmac = "0.12"
 base64 = "0.22"
 hex = "0.4"
 num-bigint = "0.4"
+percent-encoding = "2.3"
 tauri-plugin-single-instance = "2.4.0"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"

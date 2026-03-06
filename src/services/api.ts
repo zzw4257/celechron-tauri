@@ -63,9 +63,7 @@ export async function fetchTimetable(args: {
 
 export async function fetchTodos(): Promise<ApiEnvelope<TodosPayload>> {
   const env = await callEnvelope<TodosPayload>('fetch_todos');
-  if (!Array.isArray(env.data?.todo_list)) {
-    env.data.todo_list = [];
-  }
+  env.data.todo_list = Array.isArray(env.data?.todo_list) ? env.data.todo_list : [];
   return env;
 }
 
@@ -74,20 +72,22 @@ export async function calculateGpaPreview(input: GpaPreviewInput): Promise<GpaSu
   return result as GpaSummary;
 }
 
-export async function fetchMaterials(): Promise<ApiEnvelope<MaterialsPayload>> {
-  const env = await callEnvelope<MaterialsPayload>('fetch_materials');
+function normalizeMaterialsPayload(env: ApiEnvelope<MaterialsPayload>) {
+  env.data.defaultScope = env.data?.defaultScope === 'all' ? 'all' : 'current-week';
+  env.data.courseFilters = Array.isArray(env.data?.courseFilters) ? env.data.courseFilters : [];
+  env.data.sourcePriority = Array.isArray(env.data?.sourcePriority) ? env.data.sourcePriority : ['classroom', 'activity', 'homework'];
   env.data.items = Array.isArray(env.data?.items) ? env.data.items : [];
   env.data.remoteItems = Array.isArray(env.data?.remoteItems) ? env.data.remoteItems : [];
   env.data.warnings = Array.isArray(env.data?.warnings) ? env.data.warnings : [];
   return env;
 }
 
+export async function fetchMaterials(): Promise<ApiEnvelope<MaterialsPayload>> {
+  return normalizeMaterialsPayload(await callEnvelope<MaterialsPayload>('fetch_materials'));
+}
+
 export async function syncMaterialsIndex(): Promise<ApiEnvelope<MaterialsPayload>> {
-  const env = await callEnvelope<MaterialsPayload>('sync_materials_index');
-  env.data.items = Array.isArray(env.data?.items) ? env.data.items : [];
-  env.data.remoteItems = Array.isArray(env.data?.remoteItems) ? env.data.remoteItems : [];
-  env.data.warnings = Array.isArray(env.data?.warnings) ? env.data.warnings : [];
-  return env;
+  return normalizeMaterialsPayload(await callEnvelope<MaterialsPayload>('sync_materials_index'));
 }
 
 export async function downloadMaterialAsset(input: DownloadMaterialInput): Promise<ApiEnvelope<{ item: unknown }>> {
