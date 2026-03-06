@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 const CLASSROOM_SSO_URL: &str = "https://tgmedia.cmc.zju.edu.cn/index.php?r=auth/login&auType=cmc&tenant_code=112&forward=https%3A%2F%2Fclassroom.zju.edu.cn%2F";
 const USER_AGENT_VALUE: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const MAX_SSO_REDIRECTS: usize = 24;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,7 +43,12 @@ pub struct ClassroomSession {
 
 fn parse_i64(value: Option<&Value>) -> i64 {
     value
-        .and_then(|item| item.as_i64().or_else(|| item.as_str().and_then(|text| text.trim().parse::<i64>().ok())))
+        .and_then(|item| {
+            item.as_i64().or_else(|| {
+                item.as_str()
+                    .and_then(|text| text.trim().parse::<i64>().ok())
+            })
+        })
         .unwrap_or_default()
 }
 
@@ -52,18 +58,17 @@ fn clean_label(input: &str) -> String {
 
 fn auth_headers(token: &str) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
-    headers.insert(
-        USER_AGENT,
-        HeaderValue::from_static(USER_AGENT_VALUE),
-    );
+    headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
     let bearer = format!("Bearer {token}");
-    let auth = HeaderValue::from_str(&bearer).map_err(|error| format!("Classroom 鉴权头构建失败: {error}"))?;
+    let auth = HeaderValue::from_str(&bearer)
+        .map_err(|error| format!("Classroom 鉴权头构建失败: {error}"))?;
     headers.insert(AUTHORIZATION, auth);
     Ok(headers)
 }
 
 fn extract_token(jar: &Jar) -> Result<String, String> {
-    let classroom_url = Url::parse("https://classroom.zju.edu.cn").map_err(|error| error.to_string())?;
+    let classroom_url =
+        Url::parse("https://classroom.zju.edu.cn").map_err(|error| error.to_string())?;
     let cookies = jar
         .cookies(&classroom_url)
         .ok_or_else(|| "Classroom cookie 缺失，请重新登录".to_string())?;
@@ -75,6 +80,53 @@ fn extract_token(jar: &Jar) -> Result<String, String> {
     re.captures(&cookie_text)
         .and_then(|caps| caps.get(1).map(|item| item.as_str().to_string()))
         .ok_or_else(|| "Classroom token 缺失，请重新登录".to_string())
+}
+
+fn resolve_redirect_url(current: &Url, target: &str) -> Option<Url> {
+    let trimmed = target.trim().trim_matches('"').trim_matches('\'');
+    if trimmed.is_empty() {
+        return None;
+    }
+    current
+        .join(trimmed)
+        .ok()
+        .or_else(|| Url::parse(trimmed).ok())
+}
+
+fn extract_html_redirect(current: &Url, body: &str) -> Option<Url> {
+    let patterns = [
+        r#"url=([^"'\s>]+)"#,
+        r#"location\.href\s*=\s*["']([^"']+)["']"#,
+        r#"window\.location\s*=\s*["']([^"']+)["']"#,
+        r#"window\.location\.replace\(["']([^"']+)["']\)"#,
+    ];
+
+    for pattern in patterns {
+        let re = Regex::new(pattern).ok()?;
+        if let Some(target) = re
+            .captures(body)
+            .and_then(|caps| caps.get(1).map(|item| item.as_str()))
+        {
+            if let Some(url) = resolve_redirect_url(current, target) {
+                return Some(url);
+            }
+        }
+    }
+
+    None
+}
+
+fn extract_refresh_redirect(current: &Url, refresh: &str) -> Option<Url> {
+    let lowered = refresh.trim();
+    let target = lowered
+        .split(';')
+        .find_map(|part| part.trim().strip_prefix("url="))
+        .or_else(|| {
+            lowered
+                .split(';')
+                .find_map(|part| part.trim().strip_prefix("URL="))
+        });
+    target.and_then(|value| resolve_redirect_url(current, value))
 }
 
 impl ClassroomSession {
@@ -93,18 +145,93 @@ impl ClassroomSession {
         jar.add_cookie_str(&cookie_value, &cas_url);
 
         let client = Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(10))
+            .redirect(reqwest::redirect::Policy::none())
             .cookie_provider(jar.clone())
             .user_agent(USER_AGENT_VALUE)
             .build()
             .map_err(|error| format!("构建 Classroom 客户端失败: {error}"))?;
 
+        let mut current_url = Url::parse(CLASSROOM_SSO_URL)
+            .map_err(|error| format!("Classroom SSO 地址非法: {error}"))?;
+        let mut final_url = current_url.clone();
+        let mut reached_classroom = false;
+        let mut final_body = String::new();
+        let mut final_status = String::new();
+        let mut final_refresh = String::new();
+        let mut final_location = String::new();
+
+        for _ in 0..MAX_SSO_REDIRECTS {
+            let response = client
+                .get(current_url.clone())
+                .send()
+                .await
+                .map_err(|error| format!("Classroom SSO 登录失败: {error}"))?;
+
+            for cookie in response.headers().get_all("set-cookie").iter() {
+                if let Ok(raw) = cookie.to_str() {
+                    jar.add_cookie_str(raw, &current_url);
+                }
+            }
+
+            final_status = response.status().to_string();
+
+            let location = response
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            final_location = location.clone().unwrap_or_default();
+            let refresh = response
+                .headers()
+                .get("refresh")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            final_refresh = refresh.clone().unwrap_or_default();
+            let body = response.text().await.unwrap_or_default();
+            final_body = body.clone();
+
+            if let Some(target) = location
+                .as_deref()
+                .and_then(|value| resolve_redirect_url(&current_url, value))
+                .or_else(|| {
+                    refresh
+                        .as_deref()
+                        .and_then(|value| extract_refresh_redirect(&current_url, value))
+                })
+                .or_else(|| extract_html_redirect(&current_url, &body))
+            {
+                current_url = target.clone();
+                final_url = target;
+                if final_url.domain() == Some("classroom.zju.edu.cn") {
+                    reached_classroom = true;
+                }
+                continue;
+            }
+
+            final_url = current_url.clone();
+            reached_classroom = final_url.domain() == Some("classroom.zju.edu.cn")
+                || body.contains("classroom.zju.edu.cn")
+                || body.contains("_token");
+            break;
+        }
+
+        if !reached_classroom {
+            let snippet = final_body.chars().take(240).collect::<String>();
+            return Err(format!(
+                "Classroom SSO 未到达目标站点，最终停留在 {} | status={} | location={} | refresh={} | body={} ",
+                final_url,
+                final_status,
+                final_location,
+                final_refresh,
+                snippet.replace('\n', " ")
+            ));
+        }
+
         client
-            .get(CLASSROOM_SSO_URL)
-            .header("Cookie", cookie_value.clone())
+            .get("https://classroom.zju.edu.cn/")
             .send()
             .await
-            .map_err(|error| format!("Classroom SSO 登录失败: {error}"))?;
+            .map_err(|error| format!("Classroom 首页预热失败: {error}"))?;
 
         let token = extract_token(jar.as_ref())?;
         let headers = auth_headers(&token)?;
@@ -127,7 +254,11 @@ impl ClassroomSession {
             .ok_or_else(|| "Classroom 用户账号缺失".to_string())?
             .to_string();
 
-        Ok(Self { client, token, account })
+        Ok(Self {
+            client,
+            token,
+            account,
+        })
     }
 
     pub fn current_week_bounds() -> (NaiveDate, NaiveDate, String) {
@@ -153,7 +284,10 @@ impl ClassroomSession {
         (monday, sunday, label)
     }
 
-    pub async fn fetch_material_subjects(&self, course_ids: &[i64]) -> Result<ClassroomFetchResult, String> {
+    pub async fn fetch_material_subjects(
+        &self,
+        course_ids: &[i64],
+    ) -> Result<ClassroomFetchResult, String> {
         let (week_start, week_end, week_label) = Self::current_week_bounds();
         let mut warnings = Vec::new();
         let mut current_items = Vec::<ClassroomSubject>::new();
@@ -173,7 +307,9 @@ impl ClassroomSession {
         for course_id in course_ids.iter().copied().filter(|value| *value > 0) {
             match self.fetch_course_subjects(course_id).await {
                 Ok(subjects) => all_subjects.extend(subjects),
-                Err(error) => warnings.push(format!("智云课堂课程 {course_id} 资料同步失败: {error}")),
+                Err(error) => {
+                    warnings.push(format!("智云课堂课程 {course_id} 资料同步失败: {error}"))
+                }
             }
         }
 
@@ -227,7 +363,11 @@ impl ClassroomSession {
         })
     }
 
-    async fn fetch_range_subjects(&self, start: NaiveDate, end: NaiveDate) -> Result<Vec<ClassroomSubject>, String> {
+    async fn fetch_range_subjects(
+        &self,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Result<Vec<ClassroomSubject>, String> {
         let headers = auth_headers(&self.token)?;
         let mut subjects = Vec::new();
         let mut date = start;
@@ -345,7 +485,11 @@ impl ClassroomSession {
                 .await
                 .map_err(|error| format!("解析 Classroom PPT 列表失败: {error}"))?;
 
-            let list = payload.get("list").and_then(Value::as_array).cloned().unwrap_or_default();
+            let list = payload
+                .get("list")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             if total.is_none() {
                 total = payload.get("total").and_then(Value::as_i64);
             }

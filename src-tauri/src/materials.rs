@@ -12,8 +12,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 
-const REMOTE_INDEX_VERSION: u32 = 2;
-const REMOTE_INDEX_FILE: &str = "_remote_index_v2.json";
+const REMOTE_INDEX_VERSION: u32 = 3;
+const REMOTE_INDEX_FILE: &str = "_remote_index_v3.json";
 const SOURCE_PRIORITY: [&str; 3] = ["classroom", "activity", "homework"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

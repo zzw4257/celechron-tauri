@@ -222,13 +222,22 @@ async fn fetch_timetable(
 }
 
 fn normalize_todo_item(todo: &Value) -> Option<Value> {
-    let title = todo.get("title").and_then(Value::as_str)?.trim().to_string();
+    let title = todo
+        .get("title")
+        .and_then(Value::as_str)?
+        .trim()
+        .to_string();
     if title.is_empty() {
         return None;
     }
     let id = todo
         .get("id")
-        .and_then(|value| value.as_str().map(str::to_string).or_else(|| value.as_i64().map(|v| v.to_string())))
+        .and_then(|value| {
+            value
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| value.as_i64().map(|v| v.to_string()))
+        })
         .unwrap_or_else(|| format!("todo-{}", title));
     let course_name = todo
         .get("course_name")
@@ -638,17 +647,20 @@ mod local_smoke {
         zdbk::login_zdbk(&state).await?;
         courses::login_courses(&state).await?;
 
-        let (transcript_r, major_r, exams_r, todos_r) = tokio::join!(
+        let (transcript_r, major_r, exams_r, todos_r, learning_courses_r, classroom_r) = tokio::join!(
             zdbk::get_transcript(&state),
             zdbk::get_major_grades(&state),
             zdbk::get_exams(&state),
             courses::get_todos(&state),
+            courses::get_learning_courses(&state),
+            classroom::ClassroomSession::login(&state),
         );
 
         let transcript_raw = transcript_r?;
         let major_grades = major_r?;
         let exams = exams_r?;
         let todos = todos_r?;
+        let learning_courses = learning_courses_r.unwrap_or_default();
 
         let processed_grades = transcript_raw.iter().map(enrich_grade).collect::<Vec<_>>();
         let major_course_ids = collect_major_course_ids(&major_grades);
@@ -803,6 +815,39 @@ mod local_smoke {
             major_grades.len(),
             exams.len()
         );
+
+        let course_ids = learning_courses
+            .iter()
+            .filter_map(|course| course.get("id").and_then(Value::as_i64))
+            .filter(|id| *id > 0)
+            .collect::<Vec<_>>();
+
+        match classroom_r {
+            Ok(session) => match session.fetch_material_subjects(&course_ids).await {
+                Ok(result) => {
+                    println!(
+                        "Classroom materials: {} items | week={} | warnings={}",
+                        result.items.len(),
+                        result.week_label,
+                        result.warnings.len()
+                    );
+                    for warning in result.warnings.iter().take(5) {
+                        println!("- [Classroom warning] {warning}");
+                    }
+                    for item in result.items.iter().take(8) {
+                        println!(
+                            "- [Classroom] {} | {} | week={} | pages={}",
+                            item.course_name,
+                            item.sub_name,
+                            item.week_bucket,
+                            item.ppt_image_urls.len()
+                        );
+                    }
+                }
+                Err(error) => println!("Classroom materials failed: {error}"),
+            },
+            Err(error) => println!("Classroom login failed: {error}"),
+        }
         println!(
             "Term anchor: {} | source={} | sessions={} | rawTimetable={}",
             anchor.format("%Y-%m-%d"),
