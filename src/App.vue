@@ -1,45 +1,51 @@
 <script setup lang="ts">
-import { ref, onMounted, provide } from "vue";
-import Login from "./components/Login.vue";
-import MainLayout from "./components/MainLayout.vue";
-import SearchModal from "./components/SearchModal.vue";
-import { useTheme } from "./composables/useTheme";
+import { ref, onMounted, provide } from 'vue';
+import Login from './components/Login.vue';
+import MainLayout from './components/MainLayout.vue';
+import SearchModal from './components/SearchModal.vue';
+import { useTheme } from './composables/useTheme';
+import { usePreferences } from './composables/usePreferences';
 
-const { applyTheme, currentTheme, isDarkMode } = useTheme();
+const { applyTheme, currentTheme } = useTheme();
+const { accountScope, bumpAccountScope } = usePreferences();
 
 const isLoggedIn = ref(false);
-const layoutKey = ref(0); // Force remount MainLayout on account switch
+const layoutKey = ref(0);
 
 onMounted(() => {
   applyTheme(currentTheme.value);
-  if (localStorage.getItem("lastLogin")) {
+  if (localStorage.getItem('lastLogin')) {
     isLoggedIn.value = true;
   }
 });
 
+function refreshSessionScope() {
+  bumpAccountScope();
+  layoutKey.value += 1;
+}
+
 function handleLoginSuccess() {
-  localStorage.setItem("lastLogin", "true");
+  localStorage.setItem('lastLogin', 'true');
   isLoggedIn.value = true;
+  refreshSessionScope();
 }
 
 function handleLogout() {
-  localStorage.removeItem("lastLogin");
+  localStorage.removeItem('lastLogin');
   isLoggedIn.value = false;
+  refreshSessionScope();
 }
 
 function handleAccountSwitch() {
-  // Force all child views to re-mount and refetch data
-  layoutKey.value++;
+  refreshSessionScope();
 }
 
-// Provide to all descendants so OptionView can call these
 provide('appLogout', handleLogout);
 provide('appAccountSwitch', handleAccountSwitch);
 </script>
 
 <template>
-  <main class="app-container" :class="isDarkMode ? 'dark-theme' : 'light-theme'">
-    <!-- Global Draggable Titlebar -->
+  <main class="app-container">
     <div data-tauri-drag-region class="titlebar">
       Celechron
     </div>
@@ -50,13 +56,13 @@ provide('appAccountSwitch', handleAccountSwitch);
       <div class="blob blob-3"></div>
       <div class="blob blob-4"></div>
     </div>
+
     <div class="app-ui-layer">
       <Login v-if="!isLoggedIn" @login-success="handleLoginSuccess" />
       <MainLayout v-else :key="layoutKey" />
     </div>
 
-    <!-- Global Search Modal (Requires Auth) -->
-    <SearchModal v-if="isLoggedIn" />
+    <SearchModal v-if="isLoggedIn" :key="`search-${accountScope}`" />
   </main>
 </template>
 
@@ -104,31 +110,42 @@ provide('appAccountSwitch', handleAccountSwitch);
 }
 
 .blob-1 {
-  width: 60vw; height: 60vw;
+  width: 60vw;
+  height: 60vw;
   background: radial-gradient(circle, var(--blob-1) 0%, transparent 70%);
-  top: -20vh; left: -10vw;
+  top: -20vh;
+  left: -10vw;
   opacity: 0.7;
   animation-delay: 0s;
 }
+
 .blob-2 {
-  width: 50vw; height: 50vw;
+  width: 50vw;
+  height: 50vw;
   background: radial-gradient(circle, var(--blob-2) 0%, transparent 70%);
-  bottom: -20vh; right: -10vw;
+  bottom: -20vh;
+  right: -10vw;
   opacity: 0.7;
   animation-delay: -5s;
 }
+
 .blob-3 {
-  width: 55vw; height: 55vw;
+  width: 55vw;
+  height: 55vw;
   background: radial-gradient(circle, var(--blob-3) 0%, transparent 70%);
-  top: 30vh; left: 40vw;
+  top: 30vh;
+  left: 40vw;
   opacity: 0.6;
   animation-delay: -10s;
   animation-duration: 25s;
 }
+
 .blob-4 {
-  width: 45vw; height: 45vw;
+  width: 45vw;
+  height: 45vw;
   background: radial-gradient(circle, var(--blob-4) 0%, transparent 70%);
-  top: 10vh; right: 20vw;
+  top: 10vh;
+  right: 20vw;
   opacity: 0.5;
   animation-delay: -15s;
   animation-duration: 22s;
@@ -143,9 +160,9 @@ provide('appAccountSwitch', handleAccountSwitch);
 }
 
 @keyframes float {
-  0%   { transform: translate(0, 0) scale(1); }
-  33%  { transform: translate(4vw, 4vh) scale(1.08); }
-  66%  { transform: translate(-4vw, 6vh) scale(0.94); }
+  0% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(4vw, 4vh) scale(1.08); }
+  66% { transform: translate(-4vw, 6vh) scale(0.94); }
   100% { transform: translate(-2vw, -3vh) scale(1.04); }
 }
 </style>

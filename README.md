@@ -85,13 +85,15 @@ npm run release:android
 # 构建 Android 测试包 (debug 签名，仅 APK)
 npm run build:android:debug
 
-# 构建 iOS 包
+# 构建 iOS 包（非本轮 release gate，可单独执行）
 npm run release:ios
 ```
 
-统一三端构建：`npm run release:all`
+统一发布（macOS + Android）：`npm run release:all`
 
 版本同步：`npm run release:sync-version`
+
+每次构建会额外生成 `dist/release-manifest.json`，记录 tag / channel / commit / artifact 前缀。
 
 Android 本地 release 打包需要以下环境变量（缺失会被阻断）：
 
@@ -99,6 +101,12 @@ Android 本地 release 打包需要以下环境变量（缺失会被阻断）：
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
+
+本地 smoke 校验（仅开发环境，凭据只走环境变量）：
+
+```bash
+ZJU_USERNAME=你的学号 ZJU_PASSWORD=你的密码 npm run smoke:local
+```
 
 ## ✅ Quality Gates
 

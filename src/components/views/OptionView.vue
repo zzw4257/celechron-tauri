@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { ref, inject, onMounted } from "vue";
+import { inject, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { LogOut, RefreshCw, Palette, SunMoon, Layers, UserPlus, LayoutTemplate } from "lucide-vue-next";
 import { useTheme, type ThemeType } from "../../composables/useTheme";
 import { useAccounts, type SavedAccount } from "../../composables/useAccounts";
 import { useBiometric } from "../../composables/useBiometric";
+import { usePreferences } from "../../composables/usePreferences";
 import { fetchScholarData, fetchTodos } from "../../services/api";
 import packageJson from "../../../package.json";
 
 const { currentTheme, THEMES, setTheme, isLightMode, toggleLightMode, glassEffect, setGlassEffect } = useTheme();
 const { accounts, addAccount, removeAccount, updateNickname, getPassword, accountDisplayName, isFull } = useAccounts();
 const { authenticate, isBiometricAvailable } = useBiometric();
+const { retakePolicy, hideGpa, setRetakePolicy: updateRetakePolicy, setHideGpa: updateHideGpa } = usePreferences();
 
 const useBiometricAuth = ref(localStorage.getItem('useBiometric') !== 'false');
 const biometricHardwareAvailable = ref(false);
@@ -24,34 +26,17 @@ function toggleBiometricAuth() {
   localStorage.setItem('useBiometric', useBiometricAuth.value.toString());
 }
 
-// Academic Settings
-const hideGpa = ref(localStorage.getItem('hideGpa') === 'true');
-const initialPolicy = localStorage.getItem('retakePolicy');
-const retakePolicy = ref(initialPolicy === 'best' ? 'highest' : (initialPolicy || 'first'));
-
-if (initialPolicy === 'best') {
-  localStorage.setItem('retakePolicy', 'highest');
-}
-
 function toggleHideGpa() {
-  hideGpa.value = !hideGpa.value;
-  localStorage.setItem('hideGpa', hideGpa.value.toString());
+  updateHideGpa(!hideGpa.value);
 }
 
 function setRetakePolicy(pol: string) {
   const normalized = pol === 'best' ? 'highest' : pol;
-  if (retakePolicy.value === normalized) return;
-
-  retakePolicy.value = normalized;
-  localStorage.setItem('retakePolicy', normalized);
-  // Notify other views to re-read policy and refresh display.
-  window.dispatchEvent(new CustomEvent('celechron-retake-policy-changed', { detail: normalized }));
-
-  // Warm scholar cache with the new policy for immediate consistency.
-  fetchScholarData().catch(() => {});
+  if (normalized === 'first' || normalized === 'highest') {
+    updateRetakePolicy(normalized);
+  }
 }
 
-// Injected from App.vue for clean logout/switch
 const appLogout = inject<() => void>('appLogout', () => { window.location.reload(); });
 const appAccountSwitch = inject<() => void>('appAccountSwitch', () => {});
 
@@ -59,7 +44,6 @@ const isRefreshing = ref(false);
 const isSwitching = ref(false);
 const switchStatus = ref("");
 
-// Add Account inline form
 const showAddForm = ref(false);
 const addFormUsername = ref("");
 const addFormPassword = ref("");
@@ -74,9 +58,9 @@ async function handleRefresh() {
   try {
     await fetchScholarData();
     await fetchTodos();
-    await new Promise(r => setTimeout(r, 800));
-  } catch (e) {
-    console.error(e);
+    await new Promise(resolve => setTimeout(resolve, 800));
+  } catch (error) {
+    console.error(error);
   } finally {
     isRefreshing.value = false;
   }
@@ -88,38 +72,34 @@ function handleLogout() {
 
 async function switchAccount(acc: SavedAccount) {
   if (isSwitching.value) return;
-  
+
   const displayName = accountDisplayName(acc);
   if (useBiometricAuth.value && biometricHardwareAvailable.value) {
     switchStatus.value = `等待验证指纹/面容...`;
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise(resolve => setTimeout(resolve, 50));
     const authStatus = await authenticate(displayName);
-    
+
     if (authStatus === 'failed') {
       switchStatus.value = "身份验证被取消";
-      setTimeout(() => { if(switchStatus.value === "身份验证被取消") switchStatus.value = ""; }, 3000);
+      setTimeout(() => { if (switchStatus.value === "身份验证被取消") switchStatus.value = ""; }, 3000);
       return;
     }
 
-    if (authStatus === 'success') {
-       // Success!
-    } else {
-       // Fallback
-       const inputPwd = window.prompt(`需要验证身份。请输入账户 ${displayName} 的密码：`);
-       if (inputPwd === null) {
-         switchStatus.value = "已取消身份验证";
-         setTimeout(() => { switchStatus.value = ""; }, 3000);
-         return;
-       }
-       const realPwd = await getPassword(acc);
-       if (inputPwd !== realPwd) {
-         switchStatus.value = "密码错误，验证失败";
-         setTimeout(() => { switchStatus.value = ""; }, 3000);
-         return;
-       }
+    if (authStatus !== 'success') {
+      const inputPwd = window.prompt(`需要验证身份。请输入账户 ${displayName} 的密码：`);
+      if (inputPwd === null) {
+        switchStatus.value = "已取消身份验证";
+        setTimeout(() => { switchStatus.value = ""; }, 3000);
+        return;
+      }
+      const realPwd = await getPassword(acc);
+      if (inputPwd !== realPwd) {
+        switchStatus.value = "密码错误，验证失败";
+        setTimeout(() => { switchStatus.value = ""; }, 3000);
+        return;
+      }
     }
   } else {
-    // If biometric is disabled by user or hardware, ask for password directly for security
     const inputPwd = window.prompt(`安全提示：正在切换账户。请输入账户 ${displayName} 的密码：`);
     if (inputPwd === null) {
       switchStatus.value = "已取消切换";
@@ -135,15 +115,13 @@ async function switchAccount(acc: SavedAccount) {
   }
 
   const realPwd = await getPassword(acc);
-
   isSwitching.value = true;
   switchStatus.value = `正在切换至 ${displayName}...`;
-  
+
   try {
     await invoke("login_zju_command", { username: acc.username, password: realPwd });
     switchStatus.value = "切换成功，刷新数据中...";
     isSwitching.value = false;
-    // Trigger App.vue to remount MainLayout (refetch all data)
     appAccountSwitch();
   } catch (err: any) {
     switchStatus.value = typeof err === "string" ? err : (err.message || "切换失败");
@@ -162,8 +140,10 @@ async function handleAddAccount() {
     addFormUsername.value = "";
     addFormPassword.value = "";
     addFormNickname.value = "";
-    setTimeout(() => { showAddForm.value = false; addFormStatus.value = ""; }, 800);
-    // Switch to the newly added account
+    setTimeout(() => {
+      showAddForm.value = false;
+      addFormStatus.value = "";
+    }, 800);
     appAccountSwitch();
   } catch (err: any) {
     addFormStatus.value = typeof err === "string" ? err : (err.message || "登录验证失败");
@@ -693,20 +673,20 @@ function deleteAccount(id: string) {
   color: var(--option-segment-active-text);
 }
 
-:global(.light-theme) .btn-segment.active {
+:global(html[data-theme='light']) .btn-segment.active {
   box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
-:global(.light-theme) .seg-btn.active {
+:global(html[data-theme='light']) .seg-btn.active {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 }
-:global(.light-theme) .theme-swatch {
+:global(html[data-theme='light']) .theme-swatch {
   background: rgba(0,0,0,0.04);
   border-color: rgba(0,0,0,0.06);
 }
-:global(.light-theme) .theme-swatch:hover {
+:global(html[data-theme='light']) .theme-swatch:hover {
   background: rgba(0,0,0,0.06);
 }
-:global(.light-theme) .theme-swatch.active {
+:global(html[data-theme='light']) .theme-swatch.active {
   background: rgba(2,132,199,0.08);
   border-color: #0284c7;
 }
@@ -835,7 +815,7 @@ function deleteAccount(id: string) {
 .btn-edit:hover { background: rgba(100,116,139,0.1); }
 .btn-delete { color: #f87171; }
 .btn-delete:hover { background: rgba(220,38,38,0.1); }
-:global(.light-theme) .btn-delete { color: #dc2626; }
+:global(html[data-theme='light']) .btn-delete { color: #dc2626; }
 .no-accounts {
   text-align: center;
   padding: 32px 24px;
@@ -855,9 +835,9 @@ function deleteAccount(id: string) {
   font-weight: 500;
   background: #0c4a6e; color: #38bdf8;
 }
-:global(.light-theme) .switch-status { background: #f0f9ff; color: #0284c7; }
+:global(html[data-theme='light']) .switch-status { background: #f0f9ff; color: #0284c7; }
 .switch-status.error { background: #450a0a; color: #f87171; }
-:global(.light-theme) .switch-status.error { background: #fef2f2; color: #dc2626; }
+:global(html[data-theme='light']) .switch-status.error { background: #fef2f2; color: #dc2626; }
 
 /* ─── Add Account ─── */
 .add-account-btn {

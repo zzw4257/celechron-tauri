@@ -37,7 +37,6 @@ pub async fn login_zdbk(state: &AppState) -> Result<(), String> {
 
     for hv in res2.headers().get_all("set-cookie").iter() {
         if let Ok(s) = hv.to_str() {
-            println!("DEBUG ZDBK Set-Cookie: {}", s);
             let part = s.split(';').next().unwrap_or("");
             if part.starts_with("JSESSIONID=") && s.contains("/jwglxt") {
                 jsessionid = Some(part.to_string());

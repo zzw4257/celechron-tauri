@@ -152,15 +152,14 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "requires local ZJU credentials"]
     async fn test_login_zju() {
         let state = AppState::new();
         let username = std::env::var("ZJU_USERNAME").expect("ZJU_USERNAME env var not set");
         let password = std::env::var("ZJU_PASSWORD").expect("ZJU_PASSWORD env var not set");
         let result = login_zju(&state, &username, &password).await;
-        println!("Login result: {:?}", result);
         assert!(result.is_ok(), "Login failed: {:?}", result.err());
         let cookie = state.iplanet_cookie.lock().await;
         assert!(cookie.is_some(), "iPlanetDirectoryPro cookie not set");
-        println!("iPlanetDirectoryPro: {}", cookie.as_ref().unwrap());
     }
 }

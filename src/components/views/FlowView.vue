@@ -2,7 +2,9 @@
 import { ref, onMounted } from "vue";
 import { LiquidGlass } from '@wxperia/liquid-glass-vue';
 import { fetchTimetable, fetchTodos } from "../../services/api";
+import { usePreferences } from "../../composables/usePreferences";
 import { resolveCurrentTimetableTerm } from "../../utils/semester";
+import { buildCourseOccurrences, startOfLocalDay } from "../../utils/timetable";
 
 interface FlowItem {
   id: string;
@@ -20,138 +22,113 @@ const isOffline = ref(false);
 const DEFAULT_FLOW_COLORS = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#ec4899", "#eab308"];
 const FLOW_COLOR_TOKENS = ["--accent-blue", "--accent-purple", "--accent-amber", "--accent-green", "--accent-pink", "--accent-yellow"];
 const colors = ref<string[]>([...DEFAULT_FLOW_COLORS]);
-
-const periods = [
-  { label: "1-2节", time: "08:00", ms: 8 * 3600000 },
-  { label: "3-4节", time: "09:50", ms: 9 * 3600000 + 50 * 60000 },
-  { label: "5-6节", time: "13:15", ms: 13 * 3600000 + 15 * 60000 },
-  { label: "7-8节", time: "15:05", ms: 15 * 3600000 + 5 * 60000 },
-  { label: "9-10节", time: "18:50", ms: 18 * 3600000 + 50 * 60000 },
-  { label: "11-12节", time: "20:40", ms: 20 * 3600000 + 40 * 60000 },
-];
+const { manualSemesterAnchors, timeConfigMode } = usePreferences();
 
 function readCssVar(name: string, fallback: string) {
-  if (typeof window === "undefined") return fallback;
+  if (typeof window === "undefined") {
+    return fallback;
+  }
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return value || fallback;
 }
 
 function buildFlowColors() {
-  return DEFAULT_FLOW_COLORS.map((fallback, idx) => readCssVar(FLOW_COLOR_TOKENS[idx], fallback));
+  return DEFAULT_FLOW_COLORS.map((fallback, index) => readCssVar(FLOW_COLOR_TOKENS[index], fallback));
+}
+
+function buildDateLabel(date: Date): string {
+  const today = startOfLocalDay(new Date());
+  const current = startOfLocalDay(date);
+  const diffDays = Math.round((current.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays === 0) {
+    return '今天';
+  }
+  if (diffDays === 1) {
+    return '明天';
+  }
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
 async function loadFlow() {
   isLoading.value = true;
-  const newItems: FlowItem[] = [];
-  
+  isOffline.value = false;
+
   try {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const todayMs = today.getTime();
-    
-    // 1. Fetch Todos
-    const todoEnv = await fetchTodos();
-    const todoRes: any = todoEnv.data;
-    if (todoEnv._meta && todoEnv._meta.source === "cache") isOffline.value = true;
-    
-    const todos = todoRes.todo_list || [];
-    todos.forEach((t: any) => {
-      const ms = new Date(t.end_time).getTime();
-      // Keep tasks due in the next 7 days
-      if (ms > todayMs && ms < todayMs + 86400000 * 7) {
-        newItems.push({
-          id: `task-${t.id}`,
-          type: 'task',
-          title: t.title,
-          subtitle: t.course_name || '学在浙大',
-          timeLabel: new Date(t.end_time).toLocaleString('zh-CN', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}),
-          timeMs: ms,
-          color: readCssVar("--accent-red", "#ef4444")
-        });
-      }
-    });
+    const newItems: FlowItem[] = [];
+    const today = startOfLocalDay(new Date());
+    const rangeEnd = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const terms = [resolveCurrentTimetableTerm(today), resolveCurrentTimetableTerm(rangeEnd)]
+      .filter((term, index, source) => source.findIndex((item) => item.name === term.name) === index);
 
-    const term = resolveCurrentTimetableTerm();
-    const zjuYearStr = term.year;
-    const zjuSemStr = term.timetableSemester;
+    const [todoEnv, ...timetableEnvs] = await Promise.all([
+      fetchTodos(),
+      ...terms.map((term) => fetchTimetable({ year: term.year, semester: term.timetableSemester })),
+    ]);
 
-    // 2. Fetch Timetable
-    const timetableEnv = await fetchTimetable({ year: zjuYearStr, semester: zjuSemStr });
-    const timetable: any[] = timetableEnv.data.timetable || [];
-    if (timetableEnv._meta?.source === 'cache') isOffline.value = true;
-    
-    const startDateMs = parseInt(localStorage.getItem('semester_start_ms') || '0');
-    let colorIdx = 0;
-    const courseColors: any = {};
-
-    // 7-day lookahead for courses
-    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-      const d = new Date(todayMs + dayOffset * 86400000);
-      let dayStr = d.getDay().toString();
-      if (dayStr === "0") dayStr = "7"; // Sunday
-
-      let activeWeek = 1;
-      if (startDateMs > 0) {
-        activeWeek = Math.floor((d.getTime() - startDateMs) / (7 * 24 * 3600000)) + 1;
-      }
-
-      timetable.forEach((session: any) => {
-        const sDayStr = session.xqj || session.xq;
-        const periodStr = session.jcs || session.jc;
-        const zcsStr = session.zcs || session.zc || "1-16";
-        
-        if (sDayStr === dayStr) {
-           let isActive = false;
-           const parts = zcsStr.split(",");
-           parts.forEach((p: string) => {
-               const range = p.split("-");
-               if (range.length === 2 && activeWeek >= parseInt(range[0]) && activeWeek <= parseInt(range[1])) isActive = true;
-               else if (range.length === 1 && parseInt(range[0]) === activeWeek) isActive = true;
-           });
-
-           // Apply odd/even filtering
-           const dsz = (session.dsz || '').trim();
-           if (dsz === '1' && activeWeek % 2 === 0) isActive = false;
-           if (dsz === '0' && activeWeek % 2 !== 0) isActive = false;
-
-           if (isActive) {
-             const pParts = periodStr.split("-");
-             if (pParts.length > 0) {
-                let startP = parseInt(pParts[0]);
-                let mappedIdx = startP > 10 ? 5 : Math.floor((startP - 1) / 2);
-                if (mappedIdx >= 0 && mappedIdx < periods.length) {
-                  const name = session.kcmc || "";
-                  if (!courseColors[name]) {
-                    courseColors[name] = colors.value[colorIdx++ % colors.value.length];
-                  }
-                  
-                  const courseMs = d.getTime() + periods[mappedIdx].ms;
-
-                  // Label formatting
-                  let dayLabel = dayOffset === 0 ? "今天" : dayOffset === 1 ? "明天" : `${d.getMonth()+1}月${d.getDate()}日`;
-
-                  newItems.push({
-                    id: `course-${name}-${startP}-${dayOffset}`,
-                    type: 'course',
-                    title: name,
-                    subtitle: session.cdmc || '无地点',
-                    timeLabel: `${dayLabel} ${periods[mappedIdx].time}`,
-                    timeMs: courseMs,
-                    color: courseColors[name]
-                  });
-                }
-             }
-           }
-        }
-      });
+    if (todoEnv._meta?.source === 'cache') {
+      isOffline.value = true;
     }
 
-    // Sort all by absolute time
-    newItems.sort((a, b) => a.timeMs - b.timeMs);
-    items.value = newItems;
+    for (const todo of todoEnv.data.todo_list || []) {
+      const dueAt = new Date(todo.end_time).getTime();
+      if (dueAt > today.getTime() && dueAt < rangeEnd.getTime()) {
+        newItems.push({
+          id: `task-${todo.id}`,
+          type: 'task',
+          title: todo.title,
+          subtitle: todo.course_name || '学在浙大',
+          timeLabel: new Date(todo.end_time).toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          timeMs: dueAt,
+          color: readCssVar('--accent-red', '#ef4444'),
+        });
+      }
+    }
 
-  } catch (e) {
-    console.error(e);
+    const courseColors = new Map<string, string>();
+    let colorIdx = 0;
+
+    for (const timetableEnv of timetableEnvs) {
+      if (timetableEnv._meta?.source === 'cache') {
+        isOffline.value = true;
+      }
+
+      const occurrences = buildCourseOccurrences(timetableEnv.data, {
+        manualAnchors: manualSemesterAnchors.value,
+        timeConfigMode: timeConfigMode.value,
+      });
+
+      for (const occurrence of occurrences) {
+        const startAt = occurrence.startDateTime;
+        if (!startAt) {
+          continue;
+        }
+        const startMs = startAt.getTime();
+        if (startMs < today.getTime() || startMs >= rangeEnd.getTime()) {
+          continue;
+        }
+
+        const colorKey = occurrence.session.xkkh || occurrence.session.courseName;
+        if (!courseColors.has(colorKey)) {
+          courseColors.set(colorKey, colors.value[colorIdx % colors.value.length]);
+          colorIdx += 1;
+        }
+
+        newItems.push({
+          id: `course-${occurrence.id}`,
+          type: 'course',
+          title: occurrence.session.courseName,
+          subtitle: occurrence.session.location || '无地点',
+          timeLabel: `${buildDateLabel(startAt)} ${occurrence.startSlot?.start || startAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
+          timeMs: startMs,
+          color: courseColors.get(colorKey)!,
+        });
+      }
+    }
+
+    newItems.sort((left, right) => left.timeMs - right.timeMs || left.title.localeCompare(right.title));
+    items.value = newItems;
+  } catch (error) {
+    console.error(error);
   } finally {
     isLoading.value = false;
   }
@@ -365,15 +342,15 @@ onMounted(() => {
   to { opacity: 1; transform: translateX(0); }
 }
 
-:global(.light-theme) .badge.course {
+:global(html[data-theme='light']) .badge.course {
   background: rgba(2, 132, 199, 0.1);
   color: #0284c7;
 }
-:global(.light-theme) .badge.task {
+:global(html[data-theme='light']) .badge.task {
   background: rgba(220, 38, 38, 0.1);
   color: #dc2626;
 }
-:global(.light-theme) .item-card {
+:global(html[data-theme='light']) .item-card {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 

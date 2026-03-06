@@ -400,6 +400,7 @@ dependencies = [
 name = "celechron"
 version = "0.2.1"
 dependencies = [
+ "chrono",
  "hex",
  "num-bigint",
  "regex",

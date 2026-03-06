@@ -359,12 +359,12 @@ onMounted(() => {
   .task-meta { align-items: flex-start; flex-direction: row-reverse; width: 100%; justify-content: space-between; }
 }
 
-:global(.light-theme) .section-card {
+:global(html[data-theme='light']) .section-card {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
 }
-:global(.light-theme) .badge-red { background: rgba(220, 38, 38, 0.1); color: #dc2626; }
-:global(.light-theme) .badge-orange { background: rgba(234, 88, 12, 0.1); color: #ea580c; }
-:global(.light-theme) .badge-blue { background: rgba(2, 132, 199, 0.1); color: #0284c7; }
-:global(.light-theme) .badge-gray { background: rgba(100, 116, 139, 0.1); color: #475569; }
+:global(html[data-theme='light']) .badge-red { background: rgba(220, 38, 38, 0.1); color: #dc2626; }
+:global(html[data-theme='light']) .badge-orange { background: rgba(234, 88, 12, 0.1); color: #ea580c; }
+:global(html[data-theme='light']) .badge-blue { background: rgba(2, 132, 199, 0.1); color: #0284c7; }
+:global(html[data-theme='light']) .badge-gray { background: rgba(100, 116, 139, 0.1); color: #475569; }
 
 </style>

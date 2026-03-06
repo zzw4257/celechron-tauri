@@ -1,4 +1,4 @@
-# 三端发布流程
+# macOS + Android 发布流程
 
 ## 0. 版本源
 
@@ -27,7 +27,7 @@ npm run release:ios
 npm run release:all
 ```
 
-策略：自动出包，人工上传商店。
+策略：macOS + Android 自动出包，人工分发或上传；iOS 保留显式单独命令，但不进入本轮 release gate。
 
 - `release:android`：上架包（APK + AAB），要求 release 签名环境变量。
 - `build:android:debug`：测试包（debug 签名，仅 APK），不要求 release 签名环境变量。
@@ -45,8 +45,26 @@ Release 必须注入环境变量：
 
 ## 3. CI 出包
 
-`release-pack.yml` 在 `v*` tag 触发并上传 artifacts：
+`release-pack.yml` 在 `v*` tag 触发，GitHub Release 标题严格等于 tag，并上传 artifacts：
 
-- mac bundle
-- android apk/aab
-- ios ipa/xcarchive/app
+- `Celechron-${tag}-mac`
+- `Celechron-${tag}-android`
+
+iOS 保留 `release:ios` 本地显式命令，但不作为本轮 CI 阻断项。
+
+## 4. Release Manifest
+
+每次 `npm run build` / `npm run release:*` 会生成 `dist/release-manifest.json`，字段至少包含：
+
+- `version`
+- `tag`
+- `title`
+- `channel`
+- `commit`
+- `artifactPrefix`
+
+其中：
+
+- stable tag 形如 `vX.Y.Z`
+- dev tag 形如 `vX.Y.Z-dev-YYYYMMDD-HHMM`
+- GitHub Release 标题必须与 `tag` 完全一致

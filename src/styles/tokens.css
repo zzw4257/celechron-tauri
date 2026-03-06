@@ -30,7 +30,7 @@
   --blob-4: #f9a8d4;
 }
 
-:root.dark-theme {
+:root[data-theme='dark'] {
   --color-bg-main: #0f172a;
   --color-surface-card: rgba(30, 41, 59, 0.85);
   --color-surface-panel: rgba(15, 23, 42, 0.7);
@@ -59,7 +59,7 @@
   --blob-4: #9d174d;
 }
 
-:root.light-theme {
+:root[data-theme='light'] {
   --color-bg-main: #f0f4f8;
   --color-surface-card: rgba(255, 255, 255, 0.75);
   --color-surface-panel: rgba(255, 255, 255, 0.65);

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
+import type { ScholarSemester } from "../../types/api";
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';
 import { use } from 'echarts/core';
 import { CanvasRenderer } from 'echarts/renderers';
@@ -7,11 +8,14 @@ import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, TitleComponent, LegendComponent } from 'echarts/components';
 import VChart from 'vue-echarts';
 import { useTheme } from "../../composables/useTheme";
+import { usePreferences } from "../../composables/usePreferences";
 import { calculateGpaPreview, fetchScholarData, fetchTodos } from "../../services/api";
+import { formatTermDisplayName } from "../../utils/semester";
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, TitleComponent, LegendComponent]);
 
 const { isLightMode } = useTheme();
+const { retakePolicy, hideGpa, courseIdMappings } = usePreferences();
 const isDev = import.meta.env.DEV;
 
 const isLoading = ref(true);
@@ -25,7 +29,7 @@ const semester = ref({
   gpaArr: [0, 0, 0, 0],
 });
 
-const semestersList = ref<any[]>([]);
+const semestersList = ref<ScholarSemester[]>([]);
 const selectedSemesterIndex = ref(0);
 
 const practice = ref({
@@ -41,8 +45,6 @@ const lastUpdate = ref("正在同步...");
 const isOffline = ref(false);
 const offlineTime = ref("");
 
-const settingsKey = ref(0);
-const hideGpa = ref(localStorage.getItem('hideGpa') === 'true');
 const EMPTY_GPA = {
   fivePoint: 0,
   fourPoint: 0,
@@ -59,32 +61,7 @@ const gpaByPolicy = ref({
 });
 const scholarMeta = ref({ source: "unknown", timestamp: 0 });
 
-function getRetakePolicy(): 'first' | 'highest' {
-  const policy = localStorage.getItem('retakePolicy');
-  if (policy === 'highest' || policy === 'best') return 'highest';
-  return 'first';
-}
-
-const activePolicy = computed(() => {
-  settingsKey.value;
-  return getRetakePolicy();
-});
-
-onMounted(() => {
-  window.addEventListener('focus', () => {
-    hideGpa.value = localStorage.getItem('hideGpa') === 'true';
-    settingsKey.value++;
-    if (semestersList.value.length > 0) {
-      selectSemester(selectedSemesterIndex.value);
-    }
-  });
-  window.addEventListener('celechron-retake-policy-changed', () => {
-    settingsKey.value++;
-    if (semestersList.value.length > 0) {
-      selectSemester(selectedSemesterIndex.value);
-    }
-  });
-});
+const activePolicy = computed(() => retakePolicy.value);
 
 const displayGpa = computed(() => {
   const policy = activePolicy.value;
@@ -93,7 +70,7 @@ const displayGpa = computed(() => {
 
 const debugSemesterRows = computed(() =>
   semestersList.value.map((sem: any) => ({
-    name: sem.name,
+    name: sem.displayName || formatTermDisplayName(sem.term, sem.name),
     courseCount: sem.grades?.length || 0,
     firstFive: Number(sem.gpaByPolicy?.first?.fivePoint || 0),
     highestFive: Number(sem.gpaByPolicy?.highest?.fivePoint || 0),
@@ -131,7 +108,7 @@ const chartOption = computed(() => {
   if (semestersList.value.length === 0) return {};
   const semesters = [...semestersList.value].reverse();
   const policy = activePolicy.value;
-  const xAxisData = semesters.map(s => s.name);
+  const xAxisData = semesters.map(s => s.displayName || formatTermDisplayName(s.term, s.name));
 
   const data5 = semesters.map(s => {
     const val = s.gpaByPolicy?.[policy]?.fivePoint ?? s.gpaByPolicy?.first?.fivePoint ?? 0;
@@ -216,13 +193,14 @@ const customGpaDisplay = computed(() => customGpaServer.value || { ...EMPTY_GPA 
 async function refreshCustomGpaPreview() {
   if (!customGpaMode.value || semestersList.value.length === 0) return;
   try {
-    const grades = semestersList.value.flatMap((sem: any) => sem.grades || []);
+    const grades = semestersList.value.flatMap((sem) => sem.grades || []);
     const summary = await calculateGpaPreview({
       grades,
       selectedIds: [...customGpaSelected.value],
       simulatedScores: simulatedScores.value,
       retakePolicy: activePolicy.value,
       majorCourseIds: [...majorCourseIds.value],
+      courseIdMappings: courseIdMappings.value,
     });
     customGpaServer.value = summary;
   } catch (err) {
@@ -266,7 +244,8 @@ function toggleCourseSelection(xkkh: string) {
 function selectSemester(index: number) {
   selectedSemesterIndex.value = index;
   const items = semestersList.value[index];
-  semester.value.name = items.name;
+  if (!items) return;
+  semester.value.name = items.displayName || formatTermDisplayName(items.term, items.name);
   semester.value.courseCount = items.grades.length;
   const semPolicy = items?.gpaByPolicy?.[activePolicy.value] || items?.gpaByPolicy?.first;
   semester.value.courseCredits = semPolicy?.totalCredits || 0;
@@ -285,7 +264,7 @@ function exportToCSV() {
     sem.grades.forEach((g: any) => {
        const isMajor = majorCourseIds.value.has(g.xkkh);
        const row = [
-         sem.name,
+         sem.displayName || formatTermDisplayName(sem.term, sem.name),
          `"${g.kcmc || ''}"`,
          g.kcdm || '',
          g.credit || g.xf || 0,
@@ -356,7 +335,7 @@ async function fetchData() {
 
     // Calculate Semester Info 
     // Usually we pick the latest semester from the map
-    semestersList.value = (data.semesters || []).reverse();
+    semestersList.value = data.semesters || [];
 
     // Retrieve Major Course Ids
     majorCourseIds.value = new Set(data.majorCourseIds || []);
@@ -419,7 +398,7 @@ async function fetchData() {
     if (scholarEnv._meta?.source !== "cache") {
       localStorage.setItem('knownGradedCourses', JSON.stringify([...gradedCourseKeys]));
     }
-    semester.value.name = data.semesters?.[0]?.name || "无数据";
+    semester.value.name = data.semesters?.[0]?.displayName || formatTermDisplayName(data.semesters?.[0]?.term, data.semesters?.[0]?.name || "") || "无数据";
     if (semestersList.value.length > 0) {
       selectSemester(0);
     }
@@ -465,14 +444,11 @@ async function fetchData() {
     isLoading.value = false;
   }
 }
-function formatSemesterName(name: string) {
-  if (!name || !name.includes('-')) return name;
-  const parts = name.split('-');
-  if (parts.length < 3) return name;
-  const startYear = parts[0].slice(-2);
-  const endYear = parts[1].slice(-2);
-  const semType = parts[2] === '1' ? '秋冬' : (parts[2] === '2' ? '春夏' : '短');
-  return `${startYear}-${endYear} ${semType}`;
+function formatSemesterName(semester: Pick<ScholarSemester, 'term' | 'name'> | string) {
+  if (typeof semester === 'string') {
+    return formatTermDisplayName(null, semester);
+  }
+  return formatTermDisplayName(semester.term, semester.name);
 }
 
 watch(
@@ -607,7 +583,7 @@ onMounted(() => {
           :class="{ active: selectedSemesterIndex === index }"
           @click="selectSemester(index)"
         >
-          {{ formatSemesterName(sem.name) }}
+          {{ formatSemesterName(sem) }}
         </button>
       </div>
 
@@ -1300,131 +1276,131 @@ onMounted(() => {
 }
 
 /* ── ScholarView Light Mode Overrides ── */
-:global(.light-theme) .scholar-header h1 {
+:global(html[data-theme='light']) .scholar-header h1 {
   background: linear-gradient(
     135deg,
     var(--text-main),
     color-mix(in srgb, var(--text-main) 72%, var(--text-muted))
   );
 }
-:global(.light-theme) .rule-content {
+:global(html[data-theme='light']) .rule-content {
   color: #475569;
   background: rgba(0,0,0,0.03);
 }
-:global(.light-theme) .rule-content strong {
+:global(html[data-theme='light']) .rule-content strong {
   color: #1e293b;
 }
-:global(.light-theme) .formula {
+:global(html[data-theme='light']) .formula {
   color: #64748b !important;
   border-top-color: rgba(0,0,0,0.1);
 }
-:global(.light-theme) .offline-banner {
+:global(html[data-theme='light']) .offline-banner {
   background: rgba(245, 158, 11, 0.1);
   color: #d97706;
   border-color: rgba(245, 158, 11, 0.3);
 }
-:global(.light-theme) .offline-text strong {
+:global(html[data-theme='light']) .offline-text strong {
   color: #b45309;
 }
-:global(.light-theme) .loading-state {
+:global(html[data-theme='light']) .loading-state {
   color: #64748b;
 }
-:global(.light-theme) .section-card {
+:global(html[data-theme='light']) .section-card {
   background: rgba(255, 255, 255, 0.7);
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow: 0 4px 12px rgba(0,0,0,0.03);
 }
-:global(.light-theme) .section-title {
+:global(html[data-theme='light']) .section-title {
   color: #1e293b;
 }
-:global(.light-theme) .action-btn {
+:global(html[data-theme='light']) .action-btn {
   color: #64748b;
 }
-:global(.light-theme) .action-btn:hover {
+:global(html[data-theme='light']) .action-btn:hover {
   background: rgba(0,0,0,0.05);
   color: #1e293b;
 }
-:global(.light-theme) .grade-card {
+:global(html[data-theme='light']) .grade-card {
   background: color-mix(in srgb, var(--accent) 15%, #fff);
   border-color: color-mix(in srgb, var(--accent) 25%, #fff);
 }
-:global(.light-theme) .grade-label {
+:global(html[data-theme='light']) .grade-label {
   color: #64748b;
 }
-:global(.light-theme) .sem-nav {
+:global(html[data-theme='light']) .sem-nav {
   border-bottom-color: rgba(0,0,0,0.05);
 }
-:global(.light-theme) .sem-nav-btn {
+:global(html[data-theme='light']) .sem-nav-btn {
   color: #64748b;
 }
-:global(.light-theme) .sem-nav-btn:hover {
+:global(html[data-theme='light']) .sem-nav-btn:hover {
   background: rgba(0,0,0,0.05);
   color: #1e293b;
 }
-:global(.light-theme) .sem-nav-btn.active {
+:global(html[data-theme='light']) .sem-nav-btn.active {
   background: #e0f2fe;
   color: #0284c7;
 }
-:global(.light-theme) .stat-item {
+:global(html[data-theme='light']) .stat-item {
   background: transparent;
 }
-:global(.light-theme) .stat-value {
+:global(html[data-theme='light']) .stat-value {
   color: #1e293b;
 }
-:global(.light-theme) .highlight-red { color: #dc2626 !important; }
-:global(.light-theme) .stat-label {
+:global(html[data-theme='light']) .highlight-red { color: #dc2626 !important; }
+:global(html[data-theme='light']) .stat-label {
   color: #64748b;
 }
-:global(.light-theme) .course-item-card {
+:global(html[data-theme='light']) .course-item-card {
   background: rgba(0,0,0,0.03);
   border-color: rgba(0,0,0,0.05);
 }
-:global(.light-theme) .course-item-header {
+:global(html[data-theme='light']) .course-item-header {
   border-bottom-color: rgba(0,0,0,0.05);
 }
-:global(.light-theme) .course-item-name {
+:global(html[data-theme='light']) .course-item-name {
   color: #1e293b;
 }
-:global(.light-theme) .course-item-score {
+:global(html[data-theme='light']) .course-item-score {
   color: #16a34a;
 }
-:global(.light-theme) .course-item-score.failed {
+:global(html[data-theme='light']) .course-item-score.failed {
   color: #dc2626;
 }
-:global(.light-theme) .course-item-details,
-:global(.light-theme) .course-item-details span {
+:global(html[data-theme='light']) .course-item-details,
+:global(html[data-theme='light']) .course-item-details span {
   color: #64748b;
 }
-:global(.light-theme) .exam-card {
+:global(html[data-theme='light']) .exam-card {
   background: rgba(255,255,255,0.8);
   border-color: rgba(0,0,0,0.08);
 }
-:global(.light-theme) .exam-title {
+:global(html[data-theme='light']) .exam-title {
   color: #1e293b;
 }
-:global(.light-theme) .exam-title .exam-type {
+:global(html[data-theme='light']) .exam-title .exam-type {
   background: rgba(234, 88, 12, 0.1);
   color: #ea580c;
 }
-:global(.light-theme) .exam-time {
+:global(html[data-theme='light']) .exam-time {
   color: #1e293b;
 }
-:global(.light-theme) .exam-loc,
-:global(.light-theme) .exam-seat {
+:global(html[data-theme='light']) .exam-loc,
+:global(html[data-theme='light']) .exam-seat {
   color: #64748b;
 }
-:global(.light-theme) .exam-days {
+:global(html[data-theme='light']) .exam-days {
   color: #64748b;
 }
-:global(.light-theme) .exam-days.urgent {
+:global(html[data-theme='light']) .exam-days.urgent {
   color: #dc2626;
   background: rgba(220, 38, 38, 0.1);
 }
-:global(.light-theme) .exam-days.soon {
+:global(html[data-theme='light']) .exam-days.soon {
   color: #ea580c;
   background: rgba(234, 88, 12, 0.1);
 }
-:global(.light-theme) .exam-days.future {
+:global(html[data-theme='light']) .exam-days.future {
   color: #0284c7;
   background: rgba(2, 132, 199, 0.1);
 }

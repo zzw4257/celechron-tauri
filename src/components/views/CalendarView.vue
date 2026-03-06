@@ -1,88 +1,100 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { CalendarDays, BookOpen, Clock, AlertTriangle, MapPin, User, CalendarRange, Download } from "lucide-vue-next";
 import { fetchScholarData, fetchTimetable as fetchTimetableApi, fetchTodos } from "../../services/api";
+import type { ScholarSemester, SessionTimeSlot, TimetablePayload } from "../../types/api";
+import { usePreferences } from "../../composables/usePreferences";
 import {
-  buildXkkhPrefix,
-  normalizeAcademicSemesterCode,
+  buildTermDescriptor,
+  formatTermDisplayName,
   parseAcademicTermFromSemesterName,
+  parseTermDescriptor,
   resolveCurrentTimetableTerm,
-  toTimetableTerm,
+  type TermDescriptor,
 } from "../../utils/semester";
-const isDev = import.meta.env.DEV;
+import {
+  buildCourseOccurrences,
+  clampWeekNumber,
+  formatDateKey,
+  getTotalWeeks,
+  getWeekMonday,
+  getWeekNumberForDate,
+  resolveTermAnchor,
+  startOfLocalDay
+} from "../../utils/timetable";
 
+const isDev = import.meta.env.DEV;
 const weekDays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-// ZJU 标准 12 节课时间表 (每节独立)
-const periods = [
-  { label: "1", time: "08:00" },
-  { label: "2", time: "08:50" },
-  { label: "3", time: "10:00" },
-  { label: "4", time: "10:50" },
-  { label: "5", time: "11:40" },
-  { label: "6", time: "13:25" },
-  { label: "7", time: "14:15" },
-  { label: "8", time: "15:05" },
-  { label: "9", time: "16:15" },
-  { label: "10", time: "17:05" },
-  { label: "11", time: "18:50" },
-  { label: "12", time: "19:40" },
-  { label: "13", time: "20:30" },
+const palette = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#ec4899", "#eab308", "#14b8a6", "#3b82f6", "#ef4444"];
+const fallbackSessionTimes: SessionTimeSlot[] = [
+  { index: 1, start: "08:00", end: "08:45" },
+  { index: 2, start: "08:50", end: "09:35" },
+  { index: 3, start: "10:00", end: "10:45" },
+  { index: 4, start: "10:50", end: "11:35" },
+  { index: 5, start: "11:40", end: "12:25" },
+  { index: 6, start: "13:25", end: "14:10" },
+  { index: 7, start: "14:15", end: "15:00" },
+  { index: 8, start: "15:05", end: "15:50" },
+  { index: 9, start: "16:15", end: "17:00" },
+  { index: 10, start: "17:05", end: "17:50" },
+  { index: 11, start: "18:50", end: "19:35" },
+  { index: 12, start: "19:40", end: "20:25" },
+  { index: 13, start: "20:30", end: "21:15" },
+  { index: 14, start: "21:20", end: "22:05" },
 ];
 
+interface SemesterTab {
+  label: string;
+  year: string;
+  sem: string;
+  academicSem: '1' | '2';
+  term: TermDescriptor;
+}
+
 interface CourseSlot {
+  id: string;
   name: string;
   location: string;
   teacher: string;
   xkkh: string;
   color: string;
-  dayIdx: number;   // 0-6 (Mon-Sun)
-  periodIdx: number; // 0-11 (直接对应第1-12节)
-  span: number;      // 跨几节课 (通常 1, 2, 或 3)
+  dayIdx: number;
+  periodIdx: number;
+  span: number;
   activeWeeks: number[];
+  weekNumber: number;
+  date: Date;
+  dateKey: string;
+  startTime: string;
+  endTime: string;
+  startDateTime: Date | null;
+  endDateTime: Date | null;
 }
 
-const colors = ["#06b6d4", "#8b5cf6", "#f97316", "#22c55e", "#ec4899", "#eab308", "#14b8a6", "#3b82f6", "#ef4444"];
+const { manualSemesterAnchors, timeConfigMode, setManualSemesterAnchor, setTimeConfigMode } = usePreferences();
 
+const timetablePayload = ref<TimetablePayload | null>(null);
 const allCourses = ref<CourseSlot[]>([]);
 const allTodos = ref<any[]>([]);
 const allExams = ref<any[]>([]);
-
-const showMonthNav = ref(false);
-const selectedDate = ref(new Date());
-const hideCourseInfo = ref(localStorage.getItem('hideCourseInfo') === 'true');
-
-function toggleHideCourseInfo() {
-  hideCourseInfo.value = !hideCourseInfo.value;
-  localStorage.setItem('hideCourseInfo', hideCourseInfo.value.toString());
-}
-
-// Semester tabs
-
-function formatSemesterName(name: string) {
-  if (!name || !name.includes('-')) return name;
-  const parts = name.split('-');
-  if (parts.length < 3) return name;
-  const startYear = parts[0].slice(-2);
-  const endYear = parts[1].slice(-2);
-  const semType = parts[2] === '1' ? '秋冬' : (parts[2] === '2' ? '春夏' : '短');
-  return `${startYear}-${endYear} ${semType}`;
-}
-
-const semesterTabs = ref<any[]>([]);
+const semesterTabs = ref<SemesterTab[]>([]);
 const activeSemIdx = ref(0);
-
-function switchSemester(idx: number) {
-  activeSemIdx.value = idx;
-  const tab = semesterTabs.value[idx];
-  fetchTimetable(tab.year, tab.sem);
-}
-
 const totalWeeks = ref(18);
 const isLoading = ref(true);
 const isOffline = ref(false);
 const offlineTime = ref("");
+const showMonthNav = ref(false);
+const selectedDate = ref(new Date());
+const hideCourseInfo = ref(localStorage.getItem('hideCourseInfo') === 'true');
+const selectedCourse = ref<CourseSlot | null>(null);
+const showCourseDetail = ref(false);
+const showCalibrateModal = ref(false);
+const calibrateWeekInput = ref(1);
+const anchorDate = ref<Date | null>(null);
+const anchorSource = ref<'manual' | 'remote' | 'fallback'>('fallback');
+const currentWeek = ref(1);
 const timetableDebug = ref({
   requestYear: "",
   requestSem: "",
@@ -98,297 +110,337 @@ const timetableDebug = ref({
   prefixTop: [] as Array<{ prefix: string; count: number }>,
 });
 
-// 课时统计 (class hours per 2 weeks)
+const periods = computed(() => {
+  const slots = timetablePayload.value?.timeConfig?.sessionTimes?.length
+    ? timetablePayload.value.timeConfig.sessionTimes
+    : fallbackSessionTimes;
+  return slots.map((slot) => ({
+    label: String(slot.index),
+    time: slot.start,
+    end: slot.end,
+  }));
+});
+
 const classHoursStats = computed(() => {
-  const courses = allCourses.value;
-  if (courses.length === 0) return { total: 0, perTwoWeeks: '0' };
-  // Total periods across all active weeks
-  let totalPeriods = 0;
-  courses.forEach(c => {
-    totalPeriods += c.span * c.activeWeeks.length;
-  });
-  // Max week to determine semester length
-  const maxWeek = Math.max(...courses.flatMap(c => c.activeWeeks), 1);
-  const perTwoWeeks = maxWeek > 0 ? (totalPeriods / maxWeek * 2).toFixed(1) : '0';
+  if (allCourses.value.length === 0) {
+    return { total: 0, perTwoWeeks: '0' };
+  }
+  const totalPeriods = allCourses.value.reduce((sum, course) => sum + course.span, 0);
+  const perTwoWeeks = totalWeeks.value > 0 ? (totalPeriods / totalWeeks.value * 2).toFixed(1) : '0';
   return { total: totalPeriods, perTwoWeeks };
 });
 
-// Course detail modal
-const selectedCourse = ref<CourseSlot | null>(null);
-const showCourseDetail = ref(false);
+function toggleHideCourseInfo() {
+  hideCourseInfo.value = !hideCourseInfo.value;
+  localStorage.setItem('hideCourseInfo', hideCourseInfo.value.toString());
+}
 
 function openCourseDetail(course: CourseSlot) {
   selectedCourse.value = course;
   showCourseDetail.value = true;
 }
 
-// --- Calibration Logic ---
-const showCalibrateModal = ref(false);
-const calibrateWeekInput = ref(1);
-
-// Monday of Week 1
-const startDateMs = ref<number>(
-  parseInt(localStorage.getItem('semester_start_ms') || '0')
-);
-
-// Get current actual date
-
-// Get current actual date
-if (startDateMs.value === 0) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1; // 1-12
-  let defaultStart = new Date();
-  
-  if (month >= 2 && month <= 7) {
-    // Spring semester, usually starts late Feb (e.g. Feb 23 for 2026)
-    defaultStart = new Date(`${year}-02-23T00:00:00`);
-  } else {
-    // Fall semester, usually starts early Sept
-    const startYear = month < 2 ? year - 1 : year;
-    defaultStart = new Date(`${startYear}-09-09T00:00:00`);
+function syncActiveSemester(term?: TermDescriptor | null) {
+  if (!term || semesterTabs.value.length === 0) {
+    return;
   }
-  
-  const day = defaultStart.getDay() || 7;
-  defaultStart.setDate(defaultStart.getDate() - day + 1);
-  startDateMs.value = defaultStart.getTime();
-  localStorage.setItem('semester_start_ms', startDateMs.value.toString());
+  const index = semesterTabs.value.findIndex((tab) => tab.term.name === term.name);
+  if (index >= 0) {
+    activeSemIdx.value = index;
+  }
 }
 
-// Compute the "real" current week from today's date
-// NOTE: Can be negative if semester hasn't started yet!
+function buildSemesterTab(semester: ScholarSemester): SemesterTab | null {
+  const descriptor = parseTermDescriptor(semester.term) || (() => {
+    const parsed = parseAcademicTermFromSemesterName(semester.name);
+    return parsed ? buildTermDescriptor(parsed) : null;
+  })();
+  if (!descriptor) {
+    return null;
+  }
+
+  return {
+    label: formatTermDisplayName(descriptor, semester.name),
+    year: descriptor.year,
+    sem: descriptor.timetableSemester,
+    academicSem: descriptor.academicSemester,
+    term: descriptor,
+  };
+}
+
+function rebuildCourses(payload: TimetablePayload) {
+  const occurrences = buildCourseOccurrences(payload, {
+    manualAnchors: manualSemesterAnchors.value,
+    timeConfigMode: timeConfigMode.value,
+  });
+  const colorMap = new Map<string, string>();
+  let colorIdx = 0;
+
+  const mapped = occurrences.map((occurrence) => {
+    const colorKey = occurrence.session.xkkh || occurrence.session.courseName;
+    if (!colorMap.has(colorKey)) {
+      colorMap.set(colorKey, palette[colorIdx % palette.length]);
+      colorIdx += 1;
+    }
+
+    return {
+      id: occurrence.id,
+      name: occurrence.session.courseName,
+      location: occurrence.session.location,
+      teacher: occurrence.session.teacher,
+      xkkh: occurrence.session.xkkh,
+      color: colorMap.get(colorKey)!,
+      dayIdx: occurrence.dayIdx,
+      periodIdx: occurrence.session.startPeriod - 1,
+      span: occurrence.session.endPeriod - occurrence.session.startPeriod + 1,
+      activeWeeks: [...occurrence.session.weekNumbers],
+      weekNumber: occurrence.weekNumber,
+      date: occurrence.date,
+      dateKey: occurrence.dateKey,
+      startTime: occurrence.startSlot?.start || '',
+      endTime: occurrence.endSlot?.end || '',
+      startDateTime: occurrence.startDateTime,
+      endDateTime: occurrence.endDateTime,
+    } satisfies CourseSlot;
+  });
+
+  allCourses.value = mapped;
+  totalWeeks.value = getTotalWeeks(occurrences, payload.sessions);
+
+  const anchor = resolveTermAnchor(payload, {
+    manualAnchors: manualSemesterAnchors.value,
+    timeConfigMode: timeConfigMode.value,
+  });
+  anchorDate.value = anchor.date;
+  anchorSource.value = anchor.source;
+  currentWeek.value = clampWeekNumber(getWeekNumberForDate(new Date(), anchor.date), totalWeeks.value);
+  calibrateWeekInput.value = currentWeek.value;
+  selectedDate.value = getWeekMonday(anchor.date, currentWeek.value);
+}
+
+function switchSemester(idx: number) {
+  activeSemIdx.value = idx;
+  const tab = semesterTabs.value[idx];
+  fetchTimetable(tab.year, tab.sem);
+}
+
 function getRealCurrentWeek() {
-  const diff = Date.now() - startDateMs.value;
-  const w = Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1;
-  return w; // Allow negative weeks for pre-semester viewing
+  if (!anchorDate.value) {
+    return 1;
+  }
+  return clampWeekNumber(getWeekNumberForDate(new Date(), anchorDate.value), totalWeeks.value);
 }
 
-const currentWeek = ref(getRealCurrentWeek());
-
-// Semester info display
 const semesterLabel = computed(() => {
   const activeTab = semesterTabs.value[activeSemIdx.value];
   if (activeTab?.label) {
     return activeTab.label;
   }
-  const term = resolveCurrentTimetableTerm();
-  const parsedYear = Number.parseInt(term.year, 10);
-  const nextYear = Number.isFinite(parsedYear) ? String(parsedYear + 1) : term.year;
-  const semText = term.academicSemester === '2' ? '春夏' : '秋冬';
-  return `${term.year}-${nextYear} ${semText}学期`;
+  if (timetablePayload.value?.displayName) {
+    return timetablePayload.value.displayName;
+  }
+  return resolveCurrentTimetableTerm().displayName;
 });
 
 const semesterStartDateStr = computed(() => {
-  const d = new Date(startDateMs.value);
-  return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`;
+  if (!anchorDate.value) {
+    return '--';
+  }
+  return formatDateKey(anchorDate.value);
 });
 
-// Derived Monday Date for the 'currentWeek' user is viewing
 const viewedMondayDate = computed(() => {
-  return new Date(startDateMs.value + (currentWeek.value - 1) * 7 * 24 * 60 * 60 * 1000);
+  if (!anchorDate.value) {
+    return startOfLocalDay(new Date());
+  }
+  return getWeekMonday(anchorDate.value, currentWeek.value);
 });
 
-// String like "2024 年 3 月"
 const currentMonthStr = computed(() => {
   const d = viewedMondayDate.value;
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月`;
 });
 
-// Returns ["03/12 周一", "03/13 周二"...] based on current week
 const dynamicWeekDays = computed(() => {
-  const arr = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(viewedMondayDate.value.getTime() + i * 24 * 60 * 60 * 1000);
-    const mm = (d.getMonth() + 1).toString().padStart(2, '0');
-    const dd = d.getDate().toString().padStart(2, '0');
-    arr.push(`${mm}/${dd} ${weekDays[i]}`);
-  }
-  return arr;
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(viewedMondayDate.value.getTime() + index * 24 * 60 * 60 * 1000);
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${mm}/${dd} ${weekDays[index]}`;
+  });
 });
 
 function confirmCalibration() {
-  // User says THIS week is 'calibrateWeekInput'
-  // So Monday of THIS week = today's Monday
+  if (!timetablePayload.value) {
+    return;
+  }
   const today = new Date();
-  const day = today.getDay() || 7;
-  const thisMonday = new Date(today);
-  thisMonday.setDate(today.getDate() - day + 1);
-  thisMonday.setHours(0, 0, 0, 0);
-
-  // So Monday of Week 1 is thisMonday - (calibrateWeekInput - 1) weeks
-  const newStartMs = thisMonday.getTime() - (calibrateWeekInput.value - 1) * 7 * 24 * 60 * 60 * 1000;
-  startDateMs.value = newStartMs;
-  localStorage.setItem('semester_start_ms', newStartMs.toString());
-  
-  currentWeek.value = calibrateWeekInput.value;
+  const weekday = today.getDay() || 7;
+  const thisMonday = startOfLocalDay(new Date(today.getTime() - (weekday - 1) * 24 * 60 * 60 * 1000));
+  const anchor = new Date(thisMonday.getTime() - (calibrateWeekInput.value - 1) * 7 * 24 * 60 * 60 * 1000);
+  setManualSemesterAnchor(timetablePayload.value.term.name, formatDateKey(anchor));
+  setTimeConfigMode('manual');
+  rebuildCourses(timetablePayload.value);
+  currentWeek.value = clampWeekNumber(calibrateWeekInput.value, totalWeeks.value);
   showCalibrateModal.value = false;
 }
 
-// 当前周的所有课程 (带完美的连通图重叠处理定位)
 const currentWeekCourses = computed(() => {
-  const weekCourses = allCourses.value.filter(c => c.activeWeeks.includes(currentWeek.value));
+  const weekCourses = allCourses.value.filter((course) => course.weekNumber === currentWeek.value);
   const positioned: (CourseSlot & { overlapCount: number; overlapIndex: number })[] = [];
-  
-  for (let d = 0; d < 7; d++) {
-    const dayCourses = weekCourses.filter(c => c.dayIdx === d);
-    if (!dayCourses.length) continue;
 
-    // 1. Sort courses by start time, then span descending
-    dayCourses.sort((a, b) => {
-      if (a.periodIdx !== b.periodIdx) return a.periodIdx - b.periodIdx;
-      return b.span - a.span;
-    });
+  for (let day = 0; day < 7; day += 1) {
+    const dayCourses = weekCourses
+      .filter((course) => course.dayIdx === day)
+      .sort((left, right) => left.periodIdx - right.periodIdx || right.span - left.span);
+    if (!dayCourses.length) {
+      continue;
+    }
 
-    // 2. Cluster overlapping courses (connected components)
     const clusters: CourseSlot[][] = [];
-    dayCourses.forEach(c => {
-      let addedToCluster = false;
+    for (const course of dayCourses) {
+      let attached = false;
       for (const cluster of clusters) {
-        const overlaps = cluster.some(existing => 
-          Math.max(c.periodIdx, existing.periodIdx) < Math.min(c.periodIdx + c.span, existing.periodIdx + existing.span)
-        );
+        const overlaps = cluster.some((existing) => Math.max(course.periodIdx, existing.periodIdx) < Math.min(course.periodIdx + course.span, existing.periodIdx + existing.span));
         if (overlaps) {
-          cluster.push(c);
-          addedToCluster = true;
+          cluster.push(course);
+          attached = true;
           break;
         }
       }
-      if (!addedToCluster) {
-        clusters.push([c]);
+      if (!attached) {
+        clusters.push([course]);
       }
-    });
+    }
 
-    // 3. For each cluster, use greedy coloring to assign columns
-    clusters.forEach(cluster => {
+    for (const cluster of clusters) {
       const columns: CourseSlot[][] = [];
-      cluster.forEach(c => {
+      for (const course of cluster) {
         let placed = false;
-        for (let i = 0; i < columns.length; i++) {
-          const overlaps = columns[i].some(existing => 
-            Math.max(c.periodIdx, existing.periodIdx) < Math.min(c.periodIdx + c.span, existing.periodIdx + existing.span)
-          );
+        for (let columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+          const overlaps = columns[columnIndex].some((existing) => Math.max(course.periodIdx, existing.periodIdx) < Math.min(course.periodIdx + course.span, existing.periodIdx + existing.span));
           if (!overlaps) {
-            columns[i].push(c);
-            (c as any)._col = i;
+            columns[columnIndex].push(course);
+            (course as CourseSlot & { _col?: number })._col = columnIndex;
             placed = true;
             break;
           }
         }
         if (!placed) {
-          columns.push([c]);
-          (c as any)._col = columns.length - 1;
+          columns.push([course]);
+          (course as CourseSlot & { _col?: number })._col = columns.length - 1;
         }
-      });
+      }
 
-      // 4. Assign finalized calculated positioning
       const maxCols = columns.length;
-      cluster.forEach(c => {
+      cluster.forEach((course) => {
         positioned.push({
-          ...c,
+          ...course,
           overlapCount: maxCols,
-          overlapIndex: (c as any)._col
+          overlapIndex: (course as CourseSlot & { _col?: number })._col || 0,
         });
       });
-    });
+    }
   }
-  
+
   return positioned;
 });
 
 const todayCourses = computed(() => {
-  const day = new Date().getDay(); // 0=Sun, 1=Mon...
-  const idx = day === 0 ? 6 : day - 1;
-  return currentWeekCourses.value
-    .filter(c => c.dayIdx === idx)
-    .sort((a, b) => a.periodIdx - b.periodIdx)
-    .map(c => ({ ...c, period: periods[c.periodIdx]?.label || '', time: periods[c.periodIdx]?.time || '' }));
+  const todayKey = formatDateKey(new Date());
+  return allCourses.value
+    .filter((course) => course.dateKey === todayKey)
+    .sort((left, right) => left.periodIdx - right.periodIdx)
+    .map((course) => ({
+      ...course,
+      period: periods.value[course.periodIdx]?.label || '',
+      time: course.startTime,
+    }));
 });
 
-// --- Month View Logic ---
-// monthViewDate is now derived from the week selector
 const monthViewDate = computed(() => viewedMondayDate.value);
 
 const monthDays = computed(() => {
   const year = monthViewDate.value.getFullYear();
   const month = monthViewDate.value.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDay = new Date(year, month, 1).getDay(); // 0 (Sun) to 6 (Sat)
-  const offset = firstDay === 0 ? 6 : firstDay - 1; // Mon to Sun mapping
-  
-  const days = [];
-  for (let i = 0; i < offset; i++) {
+  const firstDay = new Date(year, month, 1).getDay();
+  const offset = firstDay === 0 ? 6 : firstDay - 1;
+
+  const days: Array<{ empty: boolean; date?: Date; dayNum?: number }> = [];
+  for (let index = 0; index < offset; index += 1) {
     days.push({ empty: true });
   }
-  for (let i = 1; i <= daysInMonth; i++) {
-    const d = new Date(year, month, i);
-    days.push({ empty: false, date: d, dayNum: i });
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    days.push({ empty: false, date: new Date(year, month, day), dayNum: day });
   }
   return days;
 });
 
-
-
-
 function isInViewedWeek(date: Date): boolean {
   const monday = viewedMondayDate.value.getTime();
   const sunday = monday + 6 * 24 * 60 * 60 * 1000;
-  const d = date.getTime();
-  return d >= monday && d <= sunday + 23 * 60 * 60 * 1000;
+  const current = startOfLocalDay(date).getTime();
+  return current >= monday && current <= sunday;
 }
 
 function isToday(date: Date): boolean {
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+  return formatDateKey(date) === formatDateKey(new Date());
 }
 
-function getWeekForDate(date: Date) {
-  const dLocal = new Date(date).setHours(0,0,0,0);
-  const diff = dLocal - startDateMs.value;
-  return Math.floor(diff / (7 * 24 * 60 * 60 * 1000)) + 1;
+
+function hasCourseOnDate(date: Date): boolean {
+  const dateKey = formatDateKey(date);
+  return allCourses.value.some((course) => course.dateKey === dateKey);
 }
 
 const selectedDayData = computed(() => {
-  if (!selectedDate.value) return { courses: [], exams: [], todos: [] };
-  
-  const d = selectedDate.value;
-  const w = getWeekForDate(d);
-  const dayOfWeek = d.getDay() === 0 ? 6 : d.getDay() - 1; // 0-6
-  
-  // 1. Courses
-  const dayCourses = allCourses.value.filter(c => c.activeWeeks.includes(w) && c.dayIdx === dayOfWeek);
-  
-  // 2. Exams
-  const dayTimeStart = new Date(d).setHours(0,0,0,0);
-  const dayTimeEnd = new Date(d).setHours(23,59,59,999);
-  
-  const exams = allExams.value.filter(e => {
-    const timeStr = e.kssj || e.qzkssj || (e.time ? e.time[0] : '');
-    const match = timeStr.match(/(\d{4})年(\d{2})月(\d{2})日/);
-    if(match) {
-        const examMs = new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00`).getTime();
-        return examMs >= dayTimeStart && examMs <= dayTimeEnd;
+  if (!selectedDate.value) {
+    return { courses: [], exams: [], todos: [] };
+  }
+
+  const dateKey = formatDateKey(selectedDate.value);
+  const dayTimeStart = startOfLocalDay(selectedDate.value).getTime();
+  const dayTimeEnd = dayTimeStart + 24 * 60 * 60 * 1000 - 1;
+
+  const courses = allCourses.value
+    .filter((course) => course.dateKey === dateKey)
+    .sort((left, right) => left.periodIdx - right.periodIdx);
+
+  const exams = allExams.value.filter((exam) => {
+    const timeStr = exam.kssj || exam.qzkssj || (exam.time ? exam.time[0] : '');
+    const match = /(\d{4})年(\d{2})月(\d{2})日/.exec(timeStr);
+    if (!match) {
+      return false;
     }
-    return false;
-  });
-  
-  // 3. Todos
-  const todos = allTodos.value.filter(t => {
-     const expires = t.expires || t.end_time;
-     if(!expires) return false;
-     const tMs = new Date(expires).getTime();
-     return tMs >= dayTimeStart && tMs <= dayTimeEnd;
+    const examMs = new Date(`${match[1]}-${match[2]}-${match[3]}T12:00:00`).getTime();
+    return examMs >= dayTimeStart && examMs <= dayTimeEnd;
   });
 
-  return { courses: dayCourses, exams, todos };
+  const todos = allTodos.value.filter((todo) => {
+    const expires = todo.expires || todo.end_time;
+    if (!expires) {
+      return false;
+    }
+    const dueAt = new Date(expires).getTime();
+    return dueAt >= dayTimeStart && dueAt <= dayTimeEnd;
+  });
+
+  return { courses, exams, todos };
 });
 
 async function fetchExtraData() {
-    try {
-        const tr = await fetchTodos();
-        allTodos.value = tr.data.todo_list || [];
-        const sr = await fetchScholarData();
-        allExams.value = sr.data.exams || [];
-    } catch(e) {}
+  try {
+    const [todoEnv, scholarEnv] = await Promise.all([fetchTodos(), fetchScholarData()]);
+    allTodos.value = todoEnv.data.todo_list || [];
+    allExams.value = scholarEnv.data.exams || [];
+    semesterTabs.value = (scholarEnv.data.semesters || [])
+      .map(buildSemesterTab)
+      .filter((value): value is SemesterTab => Boolean(value));
+    syncActiveSemester(timetablePayload.value?.term || null);
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
@@ -398,263 +450,111 @@ async function fetchTimetable(overrideYear?: string, overrideSem?: string) {
     const defaultTerm = resolveCurrentTimetableTerm();
     const zjuYearStr = overrideYear || defaultTerm.year;
     const zjuSemStr = overrideSem || defaultTerm.timetableSemester;
-
     const response = await fetchTimetableApi({ year: zjuYearStr, semester: zjuSemStr });
-    const responseYear = String(response.data.year || zjuYearStr);
-    const responseAcademicSem =
-      normalizeAcademicSemesterCode(response.data.semester || zjuSemStr) ||
-      normalizeAcademicSemesterCode(zjuSemStr) ||
-      '1';
-    const responseTerm = toTimetableTerm({
-      year: responseYear,
-      academicSemester: responseAcademicSem,
-    });
-    
-    // Auto-update metadata and class hours
-    fetchScholarData().then((sr) => {
-      const data: any = sr.data;
-      if (data.semesters && data.semesters.length > 0) {
-         const newTabs = data.semesters
-           .map((s: any) => {
-             const term = parseAcademicTermFromSemesterName(String(s.name || ''));
-             if (!term) return null;
-             const timetableTerm = toTimetableTerm(term);
-             return {
-               label: formatSemesterName(s.name),
-               year: timetableTerm.year,
-               sem: timetableTerm.timetableSemester,
-               academicSem: timetableTerm.academicSemester,
-             };
-           })
-           .filter(Boolean) as any[];
-         semesterTabs.value = newTabs;
-         
-         // Select best matching tab
-         const foundIdx = newTabs.findIndex(
-           (t: any) => t.year === responseTerm.year && t.sem === responseTerm.timetableSemester
-         );
-         if (foundIdx !== -1) activeSemIdx.value = foundIdx;
-      }
-    });
+    const payload = response.data;
+    timetablePayload.value = payload;
+    rebuildCourses(payload);
+    syncActiveSemester(payload.term);
 
-    const data: any[] = response.data.timetable || [];
-    const prefixCounter: Record<string, number> = {};
-    let targetMatchedRawCount = 0;
-    let filteredCount = 0;
-
-    if (response._meta && response._meta.source === "cache") {
+    if (response._meta?.source === 'cache') {
       isOffline.value = true;
       offlineTime.value = new Date(response._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false });
     } else {
       isOffline.value = false;
+      offlineTime.value = '';
     }
-    
-    // ── DEBUG: print first 5 raw sessions to console ──────────────────
-    console.log('[CalendarView] RAW API response meta:', response._meta);
-    console.log('[CalendarView] Total sessions:', data.length);
-    // ───────────────────────────────────────────────────────────────────
 
-    // Clear timetable
-    allCourses.value = [];
+    const prefixCounter: Record<string, number> = {};
+    let targetMatchedRawCount = 0;
+    const targetPrefix = `(${payload.term.year}-${Number.parseInt(payload.term.year, 10) + 1}-${payload.semester})`;
 
-    let colorIdx = 0;
-    const courseColors: Record<string, string> = {};
-
-    // 严谨的防跨学期防串台机制：通过 xkkh 字段过滤
-    const targetXkkhPrefix = buildXkkhPrefix(responseTerm.year, responseTerm.academicSemester);
-    console.log('[CalendarView] Target xkkh Prefix:', targetXkkhPrefix);
-
-    data.forEach((session: any) => {
-      const xkkh = (session.xkkh || '').trim();
+    for (const row of payload.timetable || []) {
+      const xkkh = String(row?.xkkh || '').trim();
       const prefix = extractXkkhPrefix(xkkh);
       prefixCounter[prefix] = (prefixCounter[prefix] || 0) + 1;
-      if (xkkh.startsWith(targetXkkhPrefix)) {
-        targetMatchedRawCount++;
+      if (xkkh.startsWith(targetPrefix)) {
+        targetMatchedRawCount += 1;
       }
+    }
 
-      // Skip graduate courses — same as Flutter: sfyjskc !== "1"
-      if (session.sfyjskc === '1') return;
-      
-      // CRITICAL BUG FIX: The ZJU API frequently ignores xnm/xqm and returns courses 
-      // from multiple past & future semesters. We MUST strictly match the target xkkh prefix.
-      if (!xkkh.startsWith(targetXkkhPrefix)) return;
-
-      const kcb: string = session.kcb || '';
-
-      // 1. Course name — prefer structured field kcmc, fallback to kcb HTML
-      let name = (session.kcmc || '').trim();
-      if (!name && kcb) {
-        name = kcb.split('<br>')[0].replace(/<[^>]+>/g, '').trim();
-      }
-      if (!name) return;
-
-      // 2. Location — prefer cdmc, fallback to kcb HTML
-      let loc = (session.cdmc || '').trim();
-      let teacher = '';
-      if (kcb) {
-        const ps = kcb.split('<br>');
-        // Flutter regex: (.*?)<br>(.*?)<br>(.*?)<br>(.*?)zwf
-        // group 1=name, group 2=semester info, group 3=teacher, group 4=location
-        if (ps.length > 2) teacher = ps[2].replace(/<[^>]+>/g, '').trim();
-        if (!loc && ps.length > 3) loc = ps[3].replace(/<[^>]+>/g, '').split('zwf')[0].trim();
-        else if (!loc && ps.length > 2) loc = ps[2].replace(/<[^>]+>/g, '').trim();
-      }
-
-      // 3. Day-of-week — xqj: "1"=Mon … "7"=Sun (same as Flutter dayOfWeek)
-      const dayStr = session.xqj || session.xq;
-      if (!dayStr) return;
-      const dayIdx = parseInt(dayStr) - 1;
-      if (dayIdx < 0 || dayIdx > 6) return;
-
-      // 4. Period — djj = starting period (1-indexed), skcd = duration
-      const startPeriod = parseInt(session.djj || '0') || 0;
-      const span        = parseInt(session.skcd || '2') || 2;
-      if (startPeriod <= 0) return;
-
-      // 5. Active weeks parsing
-      // Parse base weeks from '第xxx周' in kcb 
-      // ZJU undergrad courses usually represent weeks relative to the half-semester (1-8).
-      let parsedWeeks = [1, 2, 3, 4, 5, 6, 7, 8]; 
-      const timeInfo = kcb.split('<br>')[1] || '';
-      const weekMatch = timeInfo.match(/第([0-9,\-]+)周/);
-      if (weekMatch && weekMatch[1]) {
-        parsedWeeks = [];
-        const parts = weekMatch[1].replace(/[^\d,\-]/g, '').split(',');
-        parts.forEach((p: string) => {
-          const r = p.split('-').map(Number);
-          if (r.length === 2 && !isNaN(r[0]) && !isNaN(r[1]) && r[1] >= r[0]) {
-            for (let w = r[0]; w <= r[1]; w++) parsedWeeks.push(w);
-          } else if (r.length === 1 && !isNaN(r[0]) && r[0] > 0) {
-            parsedWeeks.push(r[0]);
-          }
-        });
-      }
-
-      // Determine which half-semester this applies to, using xxq field
-      const xxq = (session.xxq || '').trim();
-      const firstHalf  = xxq.includes('秋') || xxq.includes('春');
-      const secondHalf = xxq.includes('冬') || xxq.includes('夏');
-      
-      const absoluteWeeks: number[] = [];
-      if (firstHalf) {
-        // Appends unmodified relative weeks
-        absoluteWeeks.push(...parsedWeeks);
-      }
-      if (secondHalf) {
-        // Appends relative weeks shifted by 8
-        absoluteWeeks.push(...parsedWeeks.map(w => w + 8));
-      }
-
-      // Apply odd/even filtering using dsz
-      const dsz = (session.dsz || '').trim();
-      const oddOnly    = dsz === '1';
-      const evenOnly   = dsz === '0';
-
-      let activeWeeks = absoluteWeeks;
-      if (oddOnly)  activeWeeks = activeWeeks.filter(w => w % 2 !== 0);
-      if (evenOnly) activeWeeks = activeWeeks.filter(w => w % 2 === 0);
-
-      // If still empty, skip
-      if (activeWeeks.length === 0) return;
-
-      // 6. Color
-      if (!courseColors[name]) {
-        courseColors[name] = colors[colorIdx % colors.length];
-        colorIdx++;
-      }
-
-      const periodIdx = startPeriod - 1;
-      if (periodIdx >= 0 && periodIdx < 13) {
-        filteredCount++;
-        allCourses.value.push({
-          name,
-          location: loc,
-          teacher,
-          xkkh,
-          color: courseColors[name],
-          dayIdx,
-          periodIdx,
-          span,
-          activeWeeks: [...activeWeeks],
-        });
-      }
-    });
-
-    const top = Object.entries(prefixCounter)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([prefix, count]) => ({ prefix, count }));
     timetableDebug.value = {
       requestYear: zjuYearStr,
       requestSem: zjuSemStr,
-      responseYear: responseTerm.year,
-      responseSem: responseTerm.academicSemester,
-      responseXqm: response.data.xqm || "",
-      metaSource: response._meta?.source || "unknown",
+      responseYear: payload.year,
+      responseSem: payload.semester,
+      responseXqm: payload.xqm || '',
+      metaSource: response._meta?.source || 'unknown',
       metaTime: response._meta?.timestamp
         ? new Date(response._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false })
-        : "N/A",
-      targetPrefix: targetXkkhPrefix,
-      rawCount: data.length,
+        : 'N/A',
+      targetPrefix,
+      rawCount: payload.timetable?.length || 0,
       targetMatchedRawCount,
-      filteredCount,
-      prefixTop: top,
+      filteredCount: payload.sessions.length,
+      prefixTop: Object.entries(prefixCounter)
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 10)
+        .map(([prefix, count]) => ({ prefix, count })),
     };
-
-  } catch (e) {
-    console.error("Failed to fetch timetable:", e);
+  } catch (error) {
+    console.error('Failed to fetch timetable:', error);
   } finally {
     isLoading.value = false;
   }
 }
 
-// Format week array [1,2,3,5,6,9] into readable '1-3, 5-6, 9'
 function formatWeekRanges(weeks: number[]): string {
-  if (!weeks.length) return '无';
-  const sorted = [...weeks].sort((a, b) => a - b);
+  if (!weeks.length) {
+    return '无';
+  }
+  const sorted = [...weeks].sort((left, right) => left - right);
   const ranges: string[] = [];
-  let start = sorted[0], end = sorted[0];
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i] === end + 1) {
-      end = sorted[i];
+  let start = sorted[0];
+  let end = sorted[0];
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    if (sorted[index] === end + 1) {
+      end = sorted[index];
     } else {
       ranges.push(start === end ? `${start}` : `${start}-${end}`);
-      start = end = sorted[i];
+      start = sorted[index];
+      end = sorted[index];
     }
   }
+
   ranges.push(start === end ? `${start}` : `${start}-${end}`);
-  return '第 ' + ranges.join(', ') + ' 周';
+  return `第 ${ranges.join(', ')} 周`;
 }
 
 function extractXkkhPrefix(xkkh: string) {
-  if (!xkkh.startsWith('(')) return "UNKNOWN";
+  if (!xkkh.startsWith('(')) {
+    return 'UNKNOWN';
+  }
   const end = xkkh.indexOf(')');
-  if (end <= 0) return "UNKNOWN";
-  return xkkh.slice(0, end + 1);
+  return end > 0 ? xkkh.slice(0, end + 1) : 'UNKNOWN';
 }
 
-// --- iCal Export ---
 function formatDateForICS(date: Date): string {
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${date.getUTCFullYear()}${pad(date.getUTCMonth()+1)}${pad(date.getUTCDate())}T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}00Z`;
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}00Z`;
 }
 
 async function exportToICS() {
   if (allCourses.value.length === 0) {
-    alert("当前没有可导出的课程数据！");
+    alert('当前没有可导出的课程数据！');
     return;
   }
-  
+
   try {
     const filePath = await save({
       filters: [{ name: 'iCalendar', extensions: ['ics'] }],
-      defaultPath: `Celechron_${semesterTabs.value[activeSemIdx.value]?.label || '课表'}.ics`,
+      defaultPath: `Celechron_${semesterTabs.value[activeSemIdx.value]?.label || semesterLabel.value}.ics`,
     });
-    
-    if (!filePath) return; // User canceled dialog
+    if (!filePath) {
+      return;
+    }
 
-    let icsContent = 
-`BEGIN:VCALENDAR
+    let icsContent = `BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Celechron//Tauri App//ZH
 CALSCALE:GREGORIAN
@@ -662,62 +562,46 @@ METHOD:PUBLISH
 X-WR-CALNAME:ZJU 课程表
 X-WR-TIMEZONE:Asia/Shanghai
 `;
+    const nowStamp = formatDateForICS(new Date());
 
-    // Baseline is week 1 Monday
-    const baseMonday = new Date(startDateMs.value);
-    
-    // We already parsed periods mapping
-    const periodTimes = periods.map(p => {
-      const parts = p.time.split('-');
-      return { start: parts[0], end: parts[1] };
-    });
-
-    const nowStr = formatDateForICS(new Date());
-
-    allCourses.value.forEach(course => {
-      course.activeWeeks.forEach(week => {
-        // Calculate date of this specific class:
-        // Base Monday + (week - 1) * 7 days + dayIdx
-        const classDate = new Date(baseMonday.getTime() + (week - 1) * 7 * 24 * 60 * 60 * 1000 + course.dayIdx * 24 * 60 * 60 * 1000);
-        
-        const pt = periodTimes[course.periodIdx];
-        const ptEnd = periodTimes[course.periodIdx + course.span - 1];
-        if (!pt || !ptEnd) return; // Safety check
-
-        // Create Start Date
-        const startDate = new Date(classDate);
-        startDate.setHours(parseInt(pt.start.split(':')[0]), parseInt(pt.start.split(':')[1]), 0);
-        
-        // Create End Date
-        const endDate = new Date(classDate);
-        endDate.setHours(parseInt(ptEnd.end.split(':')[0]), parseInt(ptEnd.end.split(':')[1]), 0);
-
-        icsContent += `BEGIN:VEVENT
+    for (const course of allCourses.value) {
+      if (!course.startDateTime || !course.endDateTime) {
+        continue;
+      }
+      icsContent += `BEGIN:VEVENT
 UID:${crypto.randomUUID()}
-DTSTAMP:${nowStr}
-DTSTART:${formatDateForICS(startDate)}
-DTEND:${formatDateForICS(endDate)}
+DTSTAMP:${nowStamp}
+DTSTART:${formatDateForICS(course.startDateTime)}
+DTEND:${formatDateForICS(course.endDateTime)}
 SUMMARY:${course.name}
 LOCATION:${course.location || '未知地点'}
 DESCRIPTION:${course.teacher ? `教师: ${course.teacher}` : ''}
 END:VEVENT
 `;
-      });
-    });
+    }
 
-    icsContent += "END:VCALENDAR";
-
+    icsContent += 'END:VCALENDAR';
     await writeTextFile(filePath, icsContent);
-    alert("成功导出为 ics 文件！您可以将其导入至系统日历。");
-  } catch (e: any) {
-    console.error(e);
-    alert(`导出失败: ${e.message || e}`);
+    alert('成功导出为 ics 文件！您可以将其导入至系统日历。');
+  } catch (error: any) {
+    console.error(error);
+    alert(`导出失败: ${error.message || error}`);
   }
 }
 
-onMounted(() => {
-  fetchTimetable();
-  fetchExtraData();
+watch(currentWeek, (value) => {
+  const clamped = clampWeekNumber(value, totalWeeks.value);
+  if (clamped !== value) {
+    currentWeek.value = clamped;
+  }
+});
+
+watch(totalWeeks, (value) => {
+  currentWeek.value = clampWeekNumber(currentWeek.value, value);
+});
+
+onMounted(async () => {
+  await Promise.all([fetchTimetable(), fetchExtraData()]);
 });
 </script>
 
@@ -899,7 +783,7 @@ onMounted(() => {
           <div class="detail-row">
             <span class="detail-label"><Clock :size="14" style="vertical-align: -2px; margin-right: 4px;" /> 节 次</span>
             <span class="detail-value">第 {{ selectedCourse.periodIdx + 1 }}-{{ selectedCourse.periodIdx + selectedCourse.span }} 节
-              ({{ periods[selectedCourse.periodIdx]?.time }}-{{ periods[selectedCourse.periodIdx + selectedCourse.span - 1]?.time }})
+              ({{ periods[selectedCourse.periodIdx]?.time }}-{{ periods[selectedCourse.periodIdx + selectedCourse.span - 1]?.end }})
             </span>
           </div>
           <div class="detail-row">
@@ -935,7 +819,7 @@ onMounted(() => {
           <span v-if="!dayObj.empty" class="month-day-num">{{ dayObj.dayNum }}</span>
           <div v-if="!dayObj.empty" class="month-dots">
             <!-- Courses dot -->
-            <div v-if="allCourses.some(c => c.activeWeeks.includes(getWeekForDate(dayObj.date!)) && c.dayIdx === (dayObj.date!.getDay()===0?6:dayObj.date!.getDay()-1))" class="dot dot-course"></div>
+            <div v-if="hasCourseOnDate(dayObj.date!)" class="dot dot-course"></div>
             <!-- Todo dot -->
             <div v-if="allTodos.some(t => {
                 if(!t.expires) return false;
@@ -1161,17 +1045,17 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
 }
 
-:global(.light-theme) .semester-tabs {
+:global(html[data-theme='light']) .semester-tabs {
   background: rgba(0, 0, 0, 0.03);
   border-color: rgba(0, 0, 0, 0.06);
 }
-:global(.light-theme) .semester-tab {
+:global(html[data-theme='light']) .semester-tab {
   color: #64748b;
 }
-:global(.light-theme) .semester-tab:hover {
+:global(html[data-theme='light']) .semester-tab:hover {
   background: rgba(0, 0, 0, 0.06);
 }
-:global(.light-theme) .semester-tab.active {
+:global(html[data-theme='light']) .semester-tab.active {
   background: #0284c7;
   color: white;
 }
@@ -1213,19 +1097,19 @@ onMounted(() => {
   opacity: 0.8;
 }
 
-:global(.light-theme) .week-selector-pill {
+:global(html[data-theme='light']) .week-selector-pill {
   background: rgba(0,0,0,0.05);
   border-color: rgba(0,0,0,0.1);
   box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
 }
-:global(.light-theme) .pill-btn {
+:global(html[data-theme='light']) .pill-btn {
   color: #64748b;
 }
-:global(.light-theme) .pill-btn:hover {
+:global(html[data-theme='light']) .pill-btn:hover {
   background: rgba(0,0,0,0.08);
   color: #0f172a;
 }
-:global(.light-theme) .pill-label {
+:global(html[data-theme='light']) .pill-label {
   color: #334155;
 }
 
@@ -1267,7 +1151,7 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.1);
   transform: scale(1.05);
 }
-:global(.light-theme) .week-btn {
+:global(html[data-theme='light']) .week-btn {
   background: rgba(0, 0, 0, 0.05);
   border-color: rgba(0, 0, 0, 0.1);
   color: #1e293b;
@@ -1612,135 +1496,135 @@ onMounted(() => {
 /* ═══════════════════════════════════════════════════════ */
 /*             COMPREHENSIVE LIGHT MODE OVERRIDES          */
 /* ═══════════════════════════════════════════════════════ */
-:global(.light-theme) .calendar-view {
+:global(html[data-theme='light']) .calendar-view {
   color: #1e293b;
 }
-:global(.light-theme) .cal-header h1,
-:global(.light-theme) .week-label,
-:global(.light-theme) .month-label {
+:global(html[data-theme='light']) .cal-header h1,
+:global(html[data-theme='light']) .week-label,
+:global(html[data-theme='light']) .month-label {
   color: #1e293b;
 }
-:global(.light-theme) .week-btn {
+:global(html[data-theme='light']) .week-btn {
   background: rgba(0,0,0,0.06);
   color: #334155;
   border-color: rgba(0,0,0,0.08);
 }
-:global(.light-theme) .week-btn:hover {
+:global(html[data-theme='light']) .week-btn:hover {
   background: rgba(0,0,0,0.10);
 }
-:global(.light-theme) .schedule-grid {
+:global(html[data-theme='light']) .schedule-grid {
   border-color: rgba(0,0,0,0.06);
 }
-:global(.light-theme) .grid-day-header {
+:global(html[data-theme='light']) .grid-day-header {
   color: #334155;
 }
-:global(.light-theme) .grid-day-header .day-num {
+:global(html[data-theme='light']) .grid-day-header .day-num {
   color: #1e293b;
 }
-:global(.light-theme) .grid-cell {
+:global(html[data-theme='light']) .grid-cell {
   border-color: rgba(0,0,0,0.04);
 }
-:global(.light-theme) .grid-period-label .period-num {
+:global(html[data-theme='light']) .grid-period-label .period-num {
   color: #334155;
 }
-:global(.light-theme) .grid-period-label .period-time {
+:global(html[data-theme='light']) .grid-period-label .period-time {
   color: #64748b;
 }
-:global(.light-theme) .course-block {
+:global(html[data-theme='light']) .course-block {
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
-:global(.light-theme) .course-block .course-name {
+:global(html[data-theme='light']) .course-block .course-name {
   color: #fff;  /* keep white on colored accent bg */
 }
-:global(.light-theme) .course-block .course-loc {
+:global(html[data-theme='light']) .course-block .course-loc {
   color: rgba(255,255,255,0.85);
 }
-:global(.light-theme) .today-summary h3 {
+:global(html[data-theme='light']) .today-summary h3 {
   color: #1e293b;
 }
-:global(.light-theme) .today-item .today-name {
+:global(html[data-theme='light']) .today-item .today-name {
   color: #1e293b;
 }
-:global(.light-theme) .today-item .today-time,
-:global(.light-theme) .today-item .today-loc {
+:global(html[data-theme='light']) .today-item .today-time,
+:global(html[data-theme='light']) .today-item .today-loc {
   color: #64748b;
 }
 
 /* Glass panel in light mode */
-:global(.light-theme) .glass-panel {
+:global(html[data-theme='light']) .glass-panel {
   background: rgba(255, 255, 255, 0.8);
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow: 0 8px 32px rgba(0,0,0,0.08);
 }
-:global(.light-theme) .modal-overlay {
+:global(html[data-theme='light']) .modal-overlay {
   background: rgba(0,0,0,0.25);
 }
-:global(.light-theme) .modal-content h3 {
+:global(html[data-theme='light']) .modal-content h3 {
   color: #1e293b;
 }
-:global(.light-theme) .modal-content p {
+:global(html[data-theme='light']) .modal-content p {
   color: #64748b !important;
 }
 
 /* Detail rows light mode */
-:global(.light-theme) .detail-row {
+:global(html[data-theme='light']) .detail-row {
   background: rgba(0,0,0,0.03);
   border-color: rgba(0,0,0,0.05);
 }
-:global(.light-theme) .detail-label {
+:global(html[data-theme='light']) .detail-label {
   color: #64748b;
 }
-:global(.light-theme) .detail-value {
+:global(html[data-theme='light']) .detail-value {
   color: #1e293b;
 }
 
 /* Month grid light mode */
-:global(.light-theme) .month-cell {
+:global(html[data-theme='light']) .month-cell {
   background: rgba(255,255,255,0.6);
   border-color: rgba(0,0,0,0.06);
 }
-:global(.light-theme) .month-cell:not(.empty):hover {
+:global(html[data-theme='light']) .month-cell:not(.empty):hover {
   background: rgba(0,0,0,0.04);
 }
-:global(.light-theme) .month-day-num {
+:global(html[data-theme='light']) .month-day-num {
   color: #1e293b;
 }
-:global(.light-theme) .month-day-header {
+:global(html[data-theme='light']) .month-day-header {
   color: #64748b;
 }
-:global(.light-theme) .month-cell.selected {
+:global(html[data-theme='light']) .month-cell.selected {
   background: #0284c7;
   border-color: #0284c7;
 }
-:global(.light-theme) .month-cell.selected .month-day-num {
+:global(html[data-theme='light']) .month-cell.selected .month-day-num {
   color: #fff;
 }
-:global(.light-theme) .month-cell.in-week {
+:global(html[data-theme='light']) .month-cell.in-week {
   background: rgba(2, 132, 199, 0.08);
   border-color: rgba(2, 132, 199, 0.15);
 }
-:global(.light-theme) .month-cell.is-today .month-day-num {
+:global(html[data-theme='light']) .month-cell.is-today .month-day-num {
   background: #0284c7;
   color: #fff;
 }
 
 /* Selected day panel light mode */
-:global(.light-theme) .panel-date {
+:global(html[data-theme='light']) .panel-date {
   color: #1e293b;
 }
-:global(.light-theme) .empty-state {
+:global(html[data-theme='light']) .empty-state {
   color: #64748b;
 }
-:global(.light-theme) .day-section h4 {
+:global(html[data-theme='light']) .day-section h4 {
   color: #334155;
 }
-:global(.light-theme) .day-item {
+:global(html[data-theme='light']) .day-item {
   background: rgba(0,0,0,0.03);
 }
-:global(.light-theme) .item-title {
+:global(html[data-theme='light']) .item-title {
   color: #1e293b;
 }
-:global(.light-theme) .item-desc {
+:global(html[data-theme='light']) .item-desc {
   color: #64748b;
 }
 
@@ -1795,7 +1679,7 @@ onMounted(() => {
 .toggle-switch.active .toggle-knob {
   transform: translateX(22px);
 }
-:global(.light-theme) .toggle-switch {
+:global(html[data-theme='light']) .toggle-switch {
   background: rgba(0,0,0,0.15);
 }
 
@@ -1822,17 +1706,17 @@ onMounted(() => {
   background: #0284c7;
 }
 
-:global(.light-theme) .action-icon-btn {
+:global(html[data-theme='light']) .action-icon-btn {
   color: #64748b;
 }
-:global(.light-theme) .action-icon-btn:hover {
+:global(html[data-theme='light']) .action-icon-btn:hover {
   background: rgba(0,0,0,0.05);
 }
-:global(.light-theme) .action-icon-btn.primary-icon-btn {
+:global(html[data-theme='light']) .action-icon-btn.primary-icon-btn {
   background: #0ea5e9;
   color: white;
 }
-:global(.light-theme) .action-icon-btn.primary-icon-btn:hover {
+:global(html[data-theme='light']) .action-icon-btn.primary-icon-btn:hover {
   background: #0284c7;
 }
 

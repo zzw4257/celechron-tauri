@@ -1,3 +1,4 @@
 #!/usr/bin/env sh
 npm run check:colors
+npm run check:secrets
 npm run typecheck

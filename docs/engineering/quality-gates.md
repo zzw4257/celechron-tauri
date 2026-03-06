@@ -3,7 +3,7 @@
 ## 本地门禁
 
 - `commit-msg`：`commitlint`
-- `pre-commit`：`npm run typecheck` + `npm run check:colors`
+- `pre-commit`：`npm run typecheck` + `npm run check:colors` + `npm run check:secrets`
 - `pre-push`：`npm run check`
 
 ## CI 门禁
@@ -21,6 +21,7 @@ npm run check
 - TypeScript 类型检查
 - 前端构建
 - 颜色硬编码基线检查
+- secrets / cookie / 证书泄漏检查
 - Rust `cargo check --lib` + `cargo check --bin celechron`
 
 ## 颜色检查说明

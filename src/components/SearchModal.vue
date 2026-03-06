@@ -2,127 +2,103 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { Search, Calendar, BookOpen, AlertCircle } from 'lucide-vue-next';
 import { fetchScholarData, fetchTodos } from '../services/api';
-
-function formatSemesterName(name: string) {
-  if (!name || !name.includes('-')) return name;
-  const parts = name.split('-');
-  if (parts.length < 3) return name;
-  const startYear = parts[0].slice(-2);
-  const endYear = parts[1].slice(-2);
-  const semType = parts[2] === '1' ? '秋冬' : (parts[2] === '2' ? '春夏' : '短');
-  return `${startYear}-${endYear} ${semType}`;
-}
+import { formatTermDisplayName } from '../utils/semester';
 
 const isVisible = ref(false);
 const searchQuery = ref('');
 const selectedIndex = ref(-1);
-
 const searchInput = ref<HTMLInputElement | null>(null);
 
-// Raw Data
 const coursesList = ref<any[]>([]);
 const examsList = ref<any[]>([]);
 const todosList = ref<any[]>([]);
 const isLoading = ref(false);
 const typeColors = ref<Record<string, string>>({
-  course: "#3b82f6",
-  exam: "#f59e0b",
-  todo: "#10b981",
-  default: "#94a3b8",
+  course: '#3b82f6',
+  exam: '#f59e0b',
+  todo: '#10b981',
+  default: '#94a3b8',
 });
 
 function readCssVar(name: string, fallback: string) {
-  if (typeof window === "undefined") return fallback;
+  if (typeof window === 'undefined') return fallback;
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return value || fallback;
 }
 
 function syncTypeColors() {
   typeColors.value = {
-    course: readCssVar("--accent-blue", "#3b82f6"),
-    exam: readCssVar("--accent-amber", "#f59e0b"),
-    todo: readCssVar("--accent-green", "#10b981"),
-    default: readCssVar("--text-muted", "#94a3b8"),
+    course: readCssVar('--accent-blue', '#3b82f6'),
+    exam: readCssVar('--accent-amber', '#f59e0b'),
+    todo: readCssVar('--accent-green', '#10b981'),
+    default: readCssVar('--text-muted', '#94a3b8'),
   };
 }
 
 async function loadData() {
-  if (coursesList.value.length > 0) return; // already loaded
-  
   isLoading.value = true;
   try {
-    const scholarEnv = await fetchScholarData();
-    const todosEnv = await fetchTodos();
-    const data: any = scholarEnv.data;
-    const todosData: any = todosEnv.data;
+    const [scholarEnv, todosEnv] = await Promise.all([fetchScholarData(), fetchTodos()]);
+    const scholar = scholarEnv.data;
+    const todosData = todosEnv.data;
 
-    // 1. Flatten all semesters' courses
-    const allC: any[] = [];
-    (data.semesters || []).forEach((sem: any) => {
-      sem.grades.forEach((g: any) => {
-        allC.push({
-          type: 'course',
-          id: g.xkkh,
-          title: g.kcmc,
-          subtitle: `教师: ${g.jsxm || '未知'} | 学分: ${g.xf} | 学期: ${formatSemesterName(sem.name)}`,
-          score: g.cj,
-          raw: g
-        });
-      });
-    });
-    
-    // De-duplicate courses by xkkh if needed
-    const uniqueCourses = new Map();
-    for (const c of allC) {
-       uniqueCourses.set(c.id, c);
+    const flattenedCourses = (scholar.semesters || []).flatMap((semester) =>
+      (semester.grades || []).map((grade: any) => ({
+        type: 'course',
+        id: grade.xkkh || `${semester.name}-${grade.kcmc}`,
+        title: grade.kcmc,
+        subtitle: `教师: ${grade.jsxm || '未知'} | 学分: ${grade.credit ?? grade.xf ?? 0} | 学期: ${formatTermDisplayName(semester.term, semester.name)}`,
+        score: grade.cj,
+        raw: grade,
+      })),
+    );
+
+    const uniqueCourses = new Map<string, any>();
+    for (const item of flattenedCourses) {
+      uniqueCourses.set(item.id, item);
     }
     coursesList.value = Array.from(uniqueCourses.values());
 
-    // 2. Exams
-    examsList.value = (data.exams || []).map((e: any) => ({
+    examsList.value = (scholar.exams || []).map((exam: any) => ({
       type: 'exam',
-      id: e.xkkh || e.kcmc,
-      title: `${e.kcmc} 考试`,
-      subtitle: `时间: ${e.kssj || e.qzkssj || e.time?.[0] || '未知'} | 地点: ${e.ksdd || e.qzksdd || e.location?.[0] || '未知'}`,
-      raw: e
+      id: exam.xkkh || exam.kcmc,
+      title: `${exam.kcmc} 考试`,
+      subtitle: `时间: ${exam.kssj || exam.qzkssj || exam.time?.[0] || '未知'} | 地点: ${exam.ksdd || exam.qzksdd || exam.location?.[0] || '未知'}`,
+      raw: exam,
     }));
 
-    // 3. Todos
-    todosList.value = (todosData.todo_list || []).map((t: any) => ({
+    todosList.value = (todosData.todo_list || []).map((todo: any) => ({
       type: 'todo',
-      id: t.id || t.title,
-      title: t.title,
-      subtitle: `所属课程: ${t.course_name} | 截止: ${new Date(t.end_time).toLocaleString()}`,
-      raw: t
+      id: todo.id || todo.title,
+      title: todo.title,
+      subtitle: `所属课程: ${todo.course_name} | 截止: ${new Date(todo.end_time).toLocaleString('zh-CN', { hour12: false })}`,
+      raw: todo,
     }));
-
-  } catch (e) {
-    console.error("Search data load failed:", e);
+  } catch (error) {
+    console.error('Search data load failed:', error);
   } finally {
     isLoading.value = false;
   }
 }
 
-// Global keyboard shortcut
-function handleKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-    e.preventDefault();
+function handleKeydown(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+    event.preventDefault();
     toggleSearch();
   }
-  
+
   if (!isVisible.value) return;
 
-  if (e.key === 'Escape') {
+  if (event.key === 'Escape') {
     closeSearch();
-  } else if (e.key === 'ArrowDown') {
-    e.preventDefault();
+  } else if (event.key === 'ArrowDown') {
+    event.preventDefault();
     selectedIndex.value = Math.min(selectedIndex.value + 1, filteredResults.value.length - 1);
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
     selectedIndex.value = Math.max(selectedIndex.value - 1, 0);
-  } else if (e.key === 'Enter' && selectedIndex.value >= 0) {
-    const item = filteredResults.value[selectedIndex.value];
-    onItemSelect(item);
+  } else if (event.key === 'Enter' && selectedIndex.value >= 0) {
+    onItemSelect(filteredResults.value[selectedIndex.value]);
   }
 }
 
@@ -133,9 +109,7 @@ function toggleSearch() {
     searchQuery.value = '';
     selectedIndex.value = -1;
     loadData();
-    setTimeout(() => {
-      searchInput.value?.focus();
-    }, 100);
+    setTimeout(() => searchInput.value?.focus(), 100);
   }
 }
 
@@ -144,27 +118,22 @@ function closeSearch() {
 }
 
 const filteredResults = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return [];
-  
-  const all = [...coursesList.value, ...examsList.value, ...todosList.value];
-  return all.filter(item => 
-    item.title.toLowerCase().includes(q) || 
-    item.subtitle.toLowerCase().includes(q)
-  ).slice(0, 15); // limit to 15 results
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) return [];
+
+  return [...coursesList.value, ...examsList.value, ...todosList.value]
+    .filter((item) => item.title.toLowerCase().includes(query) || item.subtitle.toLowerCase().includes(query))
+    .slice(0, 15);
 });
 
 function onItemSelect(item: any) {
-  // Can expand routing or popups later based on selection.
-  // For now, it just closes the search acting as an info lookup.
-  console.log("Selected:", item);
+  console.log('Selected:', item);
   closeSearch();
 }
 
 onMounted(() => {
   syncTypeColors();
   window.addEventListener('keydown', handleKeydown);
-  // Optional: Expose toggle globally to be called from MainLayout buttons
   (window as any).__toggleGlobalSearch = toggleSearch;
 });
 
@@ -172,7 +141,6 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown);
 });
 
-// Icons mapping helper
 const getIcon = (type: string) => {
   if (type === 'course') return BookOpen;
   if (type === 'exam') return Calendar;
@@ -180,7 +148,6 @@ const getIcon = (type: string) => {
   return Search;
 };
 
-// Color mapping helper
 const getColor = (type: string) => {
   if (type === 'course') return typeColors.value.course;
   if (type === 'exam') return typeColors.value.exam;
@@ -394,7 +361,7 @@ const getIconStyle = (type: string) => {
   animation: spin 0.8s linear infinite;
 }
 
-:global(.light-theme) .search-overlay {
+:global(html[data-theme='light']) .search-overlay {
   --search-modal-bg: rgba(255, 255, 255, 0.98);
   --search-modal-border: rgba(0, 0, 0, 0.08);
   --search-modal-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
@@ -407,7 +374,7 @@ const getIconStyle = (type: string) => {
   --search-kbd-border: #cbd5e1;
 }
 
-:global(.light-theme) .esc-kbd {
+:global(html[data-theme='light']) .esc-kbd {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 </style>

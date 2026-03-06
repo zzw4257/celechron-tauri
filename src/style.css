@@ -3,7 +3,7 @@
 /* ============================================
    CELECHRON DESIGN TOKEN SYSTEM
    Strategy: Default = LIGHT THEME
-   Dark mode: :root.dark-theme overrides
+   Dark mode: :root[data-theme='dark'] overrides
    ============================================ */
 
 :root {
@@ -71,7 +71,7 @@
 }
 
 /* ── Dark Theme Overrides ── */
-:root.dark-theme {
+:root[data-theme='dark'] {
   color-scheme: dark;
 
   --bg-main: #0f172a;
@@ -116,7 +116,7 @@
 }
 
 /* ── Light Theme Variable Overrides ── */
-:root.light-theme {
+:root[data-theme='light'] {
   color-scheme: light;
 
   --bg-main: #f0f4f8;

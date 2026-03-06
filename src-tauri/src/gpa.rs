@@ -1,7 +1,7 @@
 use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RetakePolicy {
@@ -18,7 +18,7 @@ impl RetakePolicy {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GpaSummary {
     pub five_point: f64,
@@ -61,33 +61,47 @@ struct GradeEntry {
 }
 
 pub fn extract_semester_name(grade: &Value) -> Option<String> {
-    if let Some(id) = grade.get("xkkh").and_then(|v| v.as_str()) {
-        let re = Regex::new(r"\(([^)]+)\)").ok()?;
+    if let Some(id) = grade.get("xkkh").and_then(Value::as_str) {
+        let re = Regex::new(r"\((\d{4})-(\d{4})-(\d+)\)").ok()?;
         if let Some(caps) = re.captures(id) {
-            return caps.get(1).map(|m| m.as_str().to_string());
+            let year = caps.get(1)?.as_str();
+            let semester = normalize_semester_code(caps.get(3)?.as_str())?;
+            return Some(format!(
+                "{}-{}-{}",
+                year,
+                year.parse::<u32>().ok()?.saturating_add(1),
+                semester
+            ));
         }
     }
 
     let xnm = grade
         .get("xnm")
-        .and_then(|v| {
-            v.as_str()
-                .map(|s| s.to_string())
-                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        .and_then(|value| {
+            value
+                .as_str()
+                .map(|text| text.to_string())
+                .or_else(|| value.as_u64().map(|n| n.to_string()))
         })
         .unwrap_or_default();
-
     let xqm = grade
         .get("xqm")
-        .and_then(|v| {
-            v.as_str()
-                .map(|s| s.to_string())
-                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        .and_then(|value| {
+            value
+                .as_str()
+                .map(|text| text.to_string())
+                .or_else(|| value.as_u64().map(|n| n.to_string()))
         })
         .unwrap_or_default();
 
-    if !xnm.is_empty() && !xqm.is_empty() {
-        return Some(format!("{}-{}-{}", xnm, xnm.parse::<u32>().unwrap_or(0) + 1, xqm));
+    if !xnm.is_empty() {
+        let semester = normalize_semester_code(&xqm).unwrap_or("1");
+        let next_year = xnm
+            .parse::<u32>()
+            .ok()
+            .map(|value| value + 1)
+            .unwrap_or_default();
+        return Some(format!("{}-{}-{}", xnm, next_year, semester));
     }
 
     None
@@ -97,24 +111,30 @@ pub fn enrich_grade(raw: &Value) -> Value {
     let mut enriched = raw.clone();
     let cj = raw
         .get("cj")
-        .and_then(|v| v.as_str())
+        .and_then(Value::as_str)
         .unwrap_or("")
         .trim()
         .to_string();
-
     let credit = parse_f64(raw.get("credit"))
         .or_else(|| parse_f64(raw.get("xf")))
         .unwrap_or(0.0);
-
     let hundred_point = parse_f64(raw.get("hundredPoint")).unwrap_or_else(|| parse_score(&cj));
-
     let five_point = parse_f64(raw.get("fivePoint"))
         .or_else(|| parse_f64(raw.get("jd")))
         .unwrap_or_else(|| to_five_point(hundred_point));
-
-    let four_point = parse_f64(raw.get("fourPoint")).unwrap_or_else(|| to_four_point_43(five_point));
+    let four_point =
+        parse_f64(raw.get("fourPoint")).unwrap_or_else(|| to_four_point_43(five_point));
     let four_point_legacy =
         parse_f64(raw.get("fourPointLegacy")).unwrap_or_else(|| to_four_point_legacy(five_point));
+    let xkkh = raw.get("xkkh").and_then(Value::as_str).unwrap_or_default();
+    let (credit_included, gpa_included, earned_credit) =
+        grade_flags(xkkh, &cj, hundred_point, five_point);
+    let retake_key = canonical_course_key(
+        xkkh,
+        raw.get("kcdm").and_then(Value::as_str).unwrap_or_default(),
+        raw.get("kcmc").and_then(Value::as_str).unwrap_or_default(),
+    );
+    let semester_name = extract_semester_name(raw).unwrap_or_else(|| "其他/认定".to_string());
 
     if let Some(obj) = enriched.as_object_mut() {
         obj.insert("credit".to_string(), json!(credit));
@@ -122,23 +142,47 @@ pub fn enrich_grade(raw: &Value) -> Value {
         obj.insert("fivePoint".to_string(), json!(five_point));
         obj.insert("fourPoint".to_string(), json!(four_point));
         obj.insert("fourPointLegacy".to_string(), json!(four_point_legacy));
+        obj.insert("creditIncluded".to_string(), json!(credit_included));
+        obj.insert("gpaIncluded".to_string(), json!(gpa_included));
+        obj.insert(
+            "earnedCredit".to_string(),
+            json!(if earned_credit { credit } else { 0.0 }),
+        );
+        obj.insert("retakeKey".to_string(), json!(retake_key));
+        obj.insert("semesterName".to_string(), json!(semester_name));
     }
 
     enriched
 }
 
 pub fn apply_simulated_score(grade: &mut Value, score: f64) {
-    let hundred = score.max(0.0).min(100.0);
+    let hundred = score.clamp(0.0, 100.0);
     let five = to_five_point(hundred);
     let four = to_four_point_43(five);
     let legacy = to_four_point_legacy(five);
+    let cj = format!("{:.2}", hundred);
+    let xkkh = grade
+        .get("xkkh")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let (credit_included, gpa_included, earned_credit) = grade_flags(&xkkh, &cj, hundred, five);
+    let credit = parse_f64(grade.get("credit"))
+        .or_else(|| parse_f64(grade.get("xf")))
+        .unwrap_or(0.0);
 
     if let Some(obj) = grade.as_object_mut() {
-        obj.insert("cj".to_string(), json!(format!("{:.2}", hundred)));
+        obj.insert("cj".to_string(), json!(cj));
         obj.insert("hundredPoint".to_string(), json!(hundred));
         obj.insert("fivePoint".to_string(), json!(five));
         obj.insert("fourPoint".to_string(), json!(four));
         obj.insert("fourPointLegacy".to_string(), json!(legacy));
+        obj.insert("creditIncluded".to_string(), json!(credit_included));
+        obj.insert("gpaIncluded".to_string(), json!(gpa_included));
+        obj.insert(
+            "earnedCredit".to_string(),
+            json!(if earned_credit { credit } else { 0.0 }),
+        );
     }
 }
 
@@ -147,24 +191,22 @@ pub fn compute_gpa_by_policy(
     major_course_ids: &HashSet<String>,
     policy: RetakePolicy,
 ) -> GpaSummary {
-    let entries = grades
-        .iter()
-        .map(grade_to_entry)
-        .collect::<Vec<_>>();
+    let valid_entries = select_retake_entries(
+        grades.iter().map(grade_to_entry).collect::<Vec<_>>(),
+        policy,
+    );
 
-    let valid_entries = select_retake_entries(entries, policy);
+    let mut total_earned_credits = 0.0;
+    let mut gpa_credits = 0.0;
+    let mut weighted_five = 0.0;
+    let mut weighted_four = 0.0;
+    let mut weighted_legacy = 0.0;
+    let mut weighted_hundred = 0.0;
 
-    let mut total_earned_credits = 0.0_f64;
-    let mut gpa_credits = 0.0_f64;
-    let mut weighted_five = 0.0_f64;
-    let mut weighted_four = 0.0_f64;
-    let mut weighted_legacy = 0.0_f64;
-    let mut weighted_hundred = 0.0_f64;
-
-    let mut major_earned_credits = 0.0_f64;
-    let mut major_gpa_credits = 0.0_f64;
-    let mut major_weighted_four = 0.0_f64;
-    let mut major_weighted_legacy = 0.0_f64;
+    let mut major_earned_credits = 0.0;
+    let mut major_gpa_credits = 0.0;
+    let mut major_weighted_four = 0.0;
+    let mut major_weighted_legacy = 0.0;
 
     for entry in valid_entries {
         if entry.credit <= 0.0 {
@@ -172,7 +214,8 @@ pub fn compute_gpa_by_policy(
         }
 
         let (earns_credit, counts_for_gpa) = classify_grade(&entry);
-        let is_major = major_course_ids.contains(&entry.xkkh) || major_course_ids.contains(&entry.kcdm);
+        let is_major =
+            major_course_ids.contains(&entry.xkkh) || major_course_ids.contains(&entry.kcdm);
 
         if earns_credit {
             total_earned_credits += entry.credit;
@@ -209,7 +252,7 @@ pub fn compute_gpa_by_policy(
 }
 
 fn select_retake_entries(entries: Vec<GradeEntry>, policy: RetakePolicy) -> Vec<GradeEntry> {
-    let mut groups: HashMap<String, Vec<GradeEntry>> = HashMap::new();
+    let mut groups = std::collections::HashMap::<String, Vec<GradeEntry>>::new();
     for entry in entries {
         groups.entry(entry.key.clone()).or_default().push(entry);
     }
@@ -224,24 +267,23 @@ fn select_retake_entries(entries: Vec<GradeEntry>, policy: RetakePolicy) -> Vec<
         let picked = match policy {
             RetakePolicy::First => group
                 .into_iter()
-                .min_by(|a, b| a.sem_rank.cmp(&b.sem_rank))
+                .min_by(|left, right| left.sem_rank.cmp(&right.sem_rank))
                 .unwrap(),
             RetakePolicy::Highest => group
                 .into_iter()
-                .max_by(|a, b| {
-                    a.five_point
-                        .partial_cmp(&b.five_point)
+                .max_by(|left, right| {
+                    left.five_point
+                        .partial_cmp(&right.five_point)
                         .unwrap_or(std::cmp::Ordering::Equal)
                         .then_with(|| {
-                            a.hundred_point
-                                .partial_cmp(&b.hundred_point)
+                            left.hundred_point
+                                .partial_cmp(&right.hundred_point)
                                 .unwrap_or(std::cmp::Ordering::Equal)
                         })
-                        .then_with(|| a.sem_rank.cmp(&b.sem_rank))
+                        .then_with(|| right.sem_rank.cmp(&left.sem_rank))
                 })
                 .unwrap(),
         };
-
         selected.push(picked);
     }
 
@@ -249,98 +291,55 @@ fn select_retake_entries(entries: Vec<GradeEntry>, policy: RetakePolicy) -> Vec<
 }
 
 fn classify_grade(entry: &GradeEntry) -> (bool, bool) {
-    let cj = entry.cj.trim();
-
-    if entry.xkkh.contains("xtwkc") {
-        return (entry.five_point > 0.0, false);
-    }
-
-    if ["待录", "缓考", "无效"].contains(&cj) {
-        return (false, false);
-    }
-
-    if cj == "弃修" {
-        return (false, false);
-    }
-
-    if ["合格", "免修", "免考"].contains(&cj) {
-        return (true, false);
-    }
-
-    if cj == "不合格" {
-        return (false, false);
-    }
-
-    if ["不及格", "F"].contains(&cj) {
-        return (false, true);
-    }
-
-    let is_letter_grade = [
-        "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D",
-    ]
-    .contains(&cj);
-
-    if is_letter_grade {
-        return (true, true);
-    }
-
-    if let Ok(score) = cj.parse::<f64>() {
-        return (score >= 60.0, true);
-    }
-
-    let is_level_grade = ["及格", "中等", "良好", "优秀"].contains(&cj);
-    if is_level_grade {
-        return (true, true);
-    }
-
-    if entry.hundred_point > 0.0 || entry.five_point > 0.0 {
-        return (entry.hundred_point >= 60.0, true);
-    }
-
-    (false, false)
+    grade_flags(
+        &entry.xkkh,
+        &entry.cj,
+        entry.hundred_point,
+        entry.five_point,
+    )
+    .pipe(|(credit_included, gpa_included, earned_credit)| {
+        let earns_credit = credit_included && earned_credit;
+        (earns_credit, gpa_included)
+    })
 }
 
 fn grade_to_entry(grade: &Value) -> GradeEntry {
     let xkkh = grade
         .get("xkkh")
-        .and_then(|v| v.as_str())
+        .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
     let kcdm = grade
         .get("kcdm")
-        .and_then(|v| v.as_str())
+        .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
     let kcmc = grade
         .get("kcmc")
-        .and_then(|v| v.as_str())
+        .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-
-    let key = if !kcdm.is_empty() {
-        kcdm.clone()
-    } else if !kcmc.is_empty() {
-        kcmc.clone()
-    } else if !xkkh.is_empty() {
-        xkkh.clone()
-    } else {
-        "unknown".to_string()
-    };
-
-    let cj = grade
-        .get("cj")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-
-    let sem_name = extract_semester_name(grade).unwrap_or_else(|| "9999-9999-99".to_string());
+    let sem_name = grade
+        .get("semesterName")
+        .and_then(Value::as_str)
+        .map(|value| value.to_string())
+        .or_else(|| extract_semester_name(grade))
+        .unwrap_or_else(|| "9999-9999-99".to_string());
 
     GradeEntry {
-        xkkh,
-        kcdm,
-        key,
-        cj,
+        xkkh: xkkh.clone(),
+        kcdm: kcdm.clone(),
+        key: grade
+            .get("retakeKey")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| canonical_course_key(&xkkh, &kcdm, &kcmc)),
+        cj: grade
+            .get("cj")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
         credit: parse_f64(grade.get("credit"))
             .or_else(|| parse_f64(grade.get("xf")))
             .unwrap_or(0.0),
@@ -352,11 +351,94 @@ fn grade_to_entry(grade: &Value) -> GradeEntry {
     }
 }
 
-fn parse_f64(v: Option<&Value>) -> Option<f64> {
-    v.and_then(|v| {
-        v.as_f64().or_else(|| {
-            v.as_str()
-                .and_then(|s| s.trim().parse::<f64>().ok())
+fn normalize_semester_code(code: &str) -> Option<&'static str> {
+    match code.trim() {
+        "1" | "3" => Some("1"),
+        "2" | "12" => Some("2"),
+        _ => None,
+    }
+}
+
+fn canonical_course_key(xkkh: &str, kcdm: &str, kcmc: &str) -> String {
+    let re = Regex::new(r"(\(.*\)-(.*?))-.*").unwrap();
+    let mut key = re
+        .captures(xkkh)
+        .and_then(|caps| caps.get(2).map(|value| value.as_str().to_string()))
+        .or_else(|| {
+            if xkkh.len() >= 22 {
+                xkkh.get(14..22).map(|value| value.to_string())
+            } else {
+                None
+            }
+        })
+        .or_else(|| (!kcdm.is_empty()).then(|| kcdm.to_string()))
+        .or_else(|| (!kcmc.is_empty()).then(|| kcmc.to_string()))
+        .unwrap_or_else(|| xkkh.to_string());
+
+    if key.starts_with("PPAE") || key.starts_with("401") {
+        key = re
+            .captures(xkkh)
+            .and_then(|caps| caps.get(1).map(|value| value.as_str().to_string()))
+            .or_else(|| {
+                xkkh.get(0..std::cmp::min(22, xkkh.len()))
+                    .map(|value| value.to_string())
+            })
+            .unwrap_or(key);
+    }
+
+    key
+}
+
+fn grade_flags(xkkh: &str, cj: &str, hundred_point: f64, five_point: f64) -> (bool, bool, bool) {
+    let grade = cj.trim();
+    let is_sports = is_sports_course(xkkh);
+
+    if ["弃修", "待录", "缓考", "无效"].contains(&grade) {
+        return (false, false, false);
+    }
+
+    if ["合格", "免修", "免考"].contains(&grade) {
+        return (true, false, true);
+    }
+
+    if grade == "不合格" {
+        return (true, false, false);
+    }
+
+    if grade == "缺考" || grade == "F" || grade == "不及格" {
+        return (true, !is_sports, false);
+    }
+
+    let is_letter_grade =
+        ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D"].contains(&grade);
+    let is_level_grade = ["及格", "中等", "良好", "优秀"].contains(&grade);
+    let numeric_score = grade.parse::<f64>().ok();
+
+    let passed = if is_letter_grade || is_level_grade {
+        true
+    } else if let Some(score) = numeric_score {
+        score >= 60.0
+    } else if hundred_point > 0.0 || five_point > 0.0 {
+        hundred_point >= 60.0 || five_point > 0.0
+    } else {
+        false
+    };
+
+    let gpa_included = !is_sports
+        && (is_letter_grade || is_level_grade || numeric_score.is_some() || grade == "缺考");
+    (true, gpa_included, passed)
+}
+
+fn is_sports_course(xkkh: &str) -> bool {
+    let key = canonical_course_key(xkkh, "", "");
+    key.contains("xtwkc") || key.contains("PPAE") || key.contains("401")
+}
+
+fn parse_f64(value: Option<&Value>) -> Option<f64> {
+    value.and_then(|raw| {
+        raw.as_f64().or_else(|| {
+            raw.as_str()
+                .and_then(|text| text.trim().parse::<f64>().ok())
         })
     })
 }
@@ -382,26 +464,30 @@ fn parse_score(s: &str) -> f64 {
         ("不及格", 0.0),
         ("合格", 75.0),
         ("不合格", 0.0),
+        ("弃修", 0.0),
+        ("缺考", 0.0),
+        ("缓考", 0.0),
+        ("待录", 0.0),
+        ("无效", 0.0),
     ];
 
-    for (k, v) in mapping {
-        if s == k {
-            return v;
+    for (key, value) in mapping {
+        if s == key {
+            return value;
         }
     }
 
-    if let Ok(v) = s.parse::<f64>() {
-        return v;
+    if let Ok(value) = s.parse::<f64>() {
+        return value;
     }
 
     let re = Regex::new(r"\d+(?:\.\d+)?").unwrap();
-    if let Some(caps) = re.captures(s) {
-        if let Ok(v) = caps[0].parse::<f64>() {
-            return v;
-        }
-    }
-
-    0.0
+    re.captures(s)
+        .and_then(|caps| {
+            caps.get(0)
+                .and_then(|value| value.as_str().parse::<f64>().ok())
+        })
+        .unwrap_or(0.0)
 }
 
 fn to_five_point(score: f64) -> f64 {
@@ -465,13 +551,13 @@ fn semester_rank(name: &str) -> i64 {
     if let Some(caps) = re.captures(name) {
         let year = caps
             .get(1)
-            .and_then(|m| m.as_str().parse::<i64>().ok())
+            .and_then(|value| value.as_str().parse::<i64>().ok())
             .unwrap_or(9999);
-        let sem = caps
+        let semester = caps
             .get(3)
-            .and_then(|m| m.as_str().parse::<i64>().ok())
+            .and_then(|value| value.as_str().parse::<i64>().ok())
             .unwrap_or(99);
-        return year * 100 + sem;
+        return year * 100 + semester;
     }
     9_999_999
 }
@@ -484,64 +570,112 @@ fn safe_div(numerator: f64, denominator: f64) -> f64 {
     }
 }
 
+trait Pipe: Sized {
+    fn pipe<T>(self, f: impl FnOnce(Self) -> T) -> T {
+        f(self)
+    }
+}
+impl<T> Pipe for T {}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        canonical_course_key, compute_gpa_by_policy, enrich_grade, extract_semester_name,
+        GpaSummary, RetakePolicy,
+    };
+    use serde_json::json;
+    use std::collections::HashSet;
 
-    fn g(cj: &str, xf: f64, xkkh: &str, kcdm: &str) -> Value {
-        json!({
+    fn g(cj: &str, xf: f64, xkkh: &str, kcdm: &str) -> serde_json::Value {
+        enrich_grade(&json!({
             "cj": cj,
             "xf": xf,
             "xkkh": xkkh,
             "kcdm": kcdm,
             "kcmc": kcdm,
-            "credit": xf,
-            "fivePoint": to_five_point(parse_score(cj)),
-            "fourPoint": to_four_point_43(to_five_point(parse_score(cj))),
-            "fourPointLegacy": to_four_point_legacy(to_five_point(parse_score(cj))),
-            "hundredPoint": parse_score(cj)
-        })
+            "xnm": "2024",
+            "xqm": "3",
+        }))
+    }
+
+    fn summary(grades: Vec<serde_json::Value>) -> GpaSummary {
+        compute_gpa_by_policy(&grades, &HashSet::new(), RetakePolicy::First)
     }
 
     #[test]
-    fn test_pending_and_pass_fail_rules() {
-        let grades = vec![
-            g("95", 3.0, "(2023-2024-1)-A", "A"),
-            g("待录", 2.0, "(2023-2024-1)-B", "B"),
-            g("合格", 1.0, "(2023-2024-1)-C", "C"),
-            g("不及格", 2.0, "(2023-2024-1)-D", "D"),
-        ];
-
-        let summary = compute_gpa_by_policy(&grades, &HashSet::new(), RetakePolicy::First);
-        assert!((summary.total_credits - 4.0).abs() < 1e-6);
-        assert!(summary.four_point > 0.0);
+    fn term_extraction_normalizes_semester_alias() {
+        let grade = json!({ "xnm": "2024", "xqm": "12" });
+        assert_eq!(
+            extract_semester_name(&grade).as_deref(),
+            Some("2024-2025-2")
+        );
     }
 
     #[test]
-    fn test_retake_first_vs_highest() {
-        let grades = vec![
-            g("60", 3.0, "(2022-2023-1)-COURSE-1", "COURSE"),
-            g("95", 3.0, "(2023-2024-1)-COURSE-2", "COURSE"),
-        ];
+    fn retake_first_vs_highest_follow_flutter_key() {
+        let first = g("70", 3.0, "(2024-2025-1)-211G0001-0001-1", "211G0001");
+        let retake = enrich_grade(&json!({
+            "cj": "90",
+            "xf": 3.0,
+            "xkkh": "(2024-2025-2)-211G0001-0001-1",
+            "kcdm": "211G0001",
+            "kcmc": "211G0001",
+            "xnm": "2024",
+            "xqm": "12",
+        }));
 
-        let first = compute_gpa_by_policy(&grades, &HashSet::new(), RetakePolicy::First);
-        let highest = compute_gpa_by_policy(&grades, &HashSet::new(), RetakePolicy::Highest);
+        let grades = vec![first.clone(), retake.clone()];
+        let first_summary = compute_gpa_by_policy(&grades, &HashSet::new(), RetakePolicy::First);
+        let highest_summary =
+            compute_gpa_by_policy(&grades, &HashSet::new(), RetakePolicy::Highest);
 
-        assert!(highest.five_point > first.five_point);
+        assert!(first_summary.hundred_point < highest_summary.hundred_point);
+        assert_eq!(
+            canonical_course_key("(2024-2025-1)-211G0001-0001-1", "211G0001", ""),
+            "211G0001"
+        );
     }
 
     #[test]
-    fn test_major_calculation() {
+    fn sports_courses_do_not_merge_across_terms() {
+        let fall = g("90", 1.0, "(2024-2025-1)-PPAE0001-0001-1", "PPAE0001");
+        let spring = enrich_grade(&json!({
+            "cj": "95",
+            "xf": 1.0,
+            "xkkh": "(2024-2025-2)-PPAE0001-0001-1",
+            "kcdm": "PPAE0001",
+            "kcmc": "体育",
+            "xnm": "2024",
+            "xqm": "12",
+        }));
+        let sum =
+            compute_gpa_by_policy(&vec![fall, spring], &HashSet::new(), RetakePolicy::Highest);
+        assert_eq!(sum.total_credits, 2.0);
+        assert_eq!(sum.five_point, 0.0);
+    }
+
+    #[test]
+    fn pending_pass_fail_and_absent_rules_are_stable() {
         let grades = vec![
-            g("90", 3.0, "(2023-2024-1)-M1", "M1"),
-            g("85", 3.0, "(2023-2024-1)-N1", "N1"),
+            g("待录", 2.0, "(2024-2025-1)-A-1", "A0000001"),
+            g("合格", 1.0, "(2024-2025-1)-B-1", "B0000001"),
+            g("不合格", 1.0, "(2024-2025-1)-C-1", "C0000001"),
+            g("缺考", 3.0, "(2024-2025-1)-D-1", "D0000001"),
         ];
+        let result = summary(grades);
+        assert_eq!(result.total_credits, 1.0);
+        assert_eq!(result.hundred_point, 0.0);
+        assert_eq!(result.five_point, 0.0);
+    }
 
-        let mut major = HashSet::new();
-        major.insert("(2023-2024-1)-M1".to_string());
-        let summary = compute_gpa_by_policy(&grades, &major, RetakePolicy::First);
-
-        assert!(summary.major_credits > 0.0);
-        assert!(summary.major_gpa > 0.0);
+    #[test]
+    fn major_calculation_counts_major_only() {
+        let major = g("95", 3.0, "(2024-2025-1)-M-1", "M0000001");
+        let common = g("80", 2.0, "(2024-2025-1)-C-1", "C0000001");
+        let mut major_ids = HashSet::new();
+        major_ids.insert("M0000001".to_string());
+        let result = compute_gpa_by_policy(&vec![major, common], &major_ids, RetakePolicy::First);
+        assert!(result.major_gpa > result.four_point);
+        assert_eq!(result.major_credits, 3.0);
     }
 }

@@ -1,4 +1,7 @@
+import type { TermDescriptor } from '../utils/semester';
+
 export type MetaSource = 'network' | 'cache' | 'unknown';
+export type RetakePolicy = 'first' | 'highest';
 
 export interface ApiMeta {
   source: MetaSource;
@@ -23,8 +26,10 @@ export interface GpaSummary {
 
 export interface ScholarSemester {
   name: string;
+  displayName: string;
+  term: TermDescriptor | null;
   grades: any[];
-  gpaByPolicy?: {
+  gpaByPolicy: {
     first: GpaSummary;
     highest: GpaSummary;
   };
@@ -38,6 +43,7 @@ export interface ScholarPayload {
     first: GpaSummary;
     highest: GpaSummary;
   };
+  retakePolicySupported: RetakePolicy[];
   transcript: any[];
   majorGrades: any[];
   majorCourseIds: string[];
@@ -50,22 +56,58 @@ export interface ScholarPayload {
   semesters: ScholarSemester[];
 }
 
+export interface SessionTimeSlot {
+  index: number;
+  start: string;
+  end: string;
+}
+
+export interface TermTimeConfig {
+  source: 'remote' | 'cache' | 'default' | string;
+  startDate?: string;
+  sessionTimes: SessionTimeSlot[];
+  holidays: Record<string, string>;
+  exchanges: Record<string, string>;
+}
+
+export interface NormalizedTimetableSession {
+  id: string;
+  xkkh: string;
+  courseId: string;
+  courseName: string;
+  teacher: string;
+  location: string;
+  dayOfWeek: number;
+  startPeriod: number;
+  endPeriod: number;
+  weekNumbers: number[];
+  oddWeek: boolean;
+  evenWeek: boolean;
+  firstHalf: boolean;
+  secondHalf: boolean;
+}
+
 export interface TimetablePayload {
+  term: TermDescriptor;
+  displayName: string;
+  year: string;
+  semester: '1' | '2';
+  xqm: '3' | '12';
+  timeConfig: TermTimeConfig;
+  sessions: NormalizedTimetableSession[];
   timetable: any[];
-  year?: string;
-  semester?: '1' | '2';
-  xqm?: '3' | '12';
 }
 
 export interface TodosPayload {
   [key: string]: any;
-  todo_list?: any[];
+  todo_list: any[];
 }
 
 export interface GpaPreviewInput {
   grades: any[];
   selectedIds?: string[];
   simulatedScores?: Record<string, number>;
-  retakePolicy?: 'first' | 'highest';
+  retakePolicy?: RetakePolicy;
   majorCourseIds?: string[];
+  courseIdMappings?: Record<string, string>;
 }
