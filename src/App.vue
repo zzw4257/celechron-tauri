@@ -32,6 +32,7 @@ function handleLoginSuccess() {
 
 function handleLogout() {
   localStorage.removeItem('lastLogin');
+  localStorage.removeItem('celechron_active_username');
   isLoggedIn.value = false;
   refreshSessionScope();
 }

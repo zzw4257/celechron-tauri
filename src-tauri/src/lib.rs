@@ -12,7 +12,9 @@ use crate::gpa::{
     apply_simulated_score, compute_gpa_by_policy, enrich_grade, extract_semester_name, RetakePolicy,
 };
 use crate::integrations::{AiAnalysisInput, DingtalkTestInput};
-use crate::materials::{DownloadMaterialInput, MaterialPathInput};
+use crate::materials::{
+    DownloadMaterialInput, MaterialContentInput, MaterialPathInput, RemoteMaterialDownloadInput,
+};
 use crate::term::{
     descriptor_from_name, descriptor_from_parts, load_term_time_config,
     normalize_academic_semester, normalize_timetable_sessions,
@@ -240,12 +242,43 @@ fn fetch_materials(app: AppHandle) -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn sync_materials_index(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Value, String> {
+    Ok(envelope(
+        materials::sync_materials_index(&app, &state).await?,
+        "network",
+    ))
+}
+
+#[tauri::command]
 async fn download_material_asset(
     app: AppHandle,
     input: DownloadMaterialInput,
 ) -> Result<Value, String> {
     Ok(envelope(
         materials::download_material_asset(&app, input).await?,
+        "network",
+    ))
+}
+
+#[tauri::command]
+async fn cache_remote_material(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    input: RemoteMaterialDownloadInput,
+) -> Result<Value, String> {
+    Ok(envelope(
+        materials::cache_remote_material(&app, &state, input).await?,
+        "network",
+    ))
+}
+
+#[tauri::command]
+fn read_material_text(app: AppHandle, input: MaterialContentInput) -> Result<Value, String> {
+    Ok(envelope(
+        materials::read_material_text(&app, input)?,
         "network",
     ))
 }
@@ -423,7 +456,10 @@ pub fn run() {
             fetch_timetable,
             fetch_todos,
             fetch_materials,
+            sync_materials_index,
             download_material_asset,
+            cache_remote_material,
+            read_material_text,
             open_material_asset,
             remove_material_cache,
             calculate_gpa_preview,

@@ -1,50 +1,64 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { Clock, CalendarDays, CheckSquare, GraduationCap, Settings, Search, LibraryBig } from "lucide-vue-next";
+import { onMounted, onUnmounted, ref } from 'vue';
+import { Clock, CalendarDays, CheckSquare, GraduationCap, Settings, Search, LibraryBig } from 'lucide-vue-next';
 
-import FlowView from "./views/FlowView.vue";
-import CalendarView from "./views/CalendarView.vue";
-import TaskView from "./views/TaskView.vue";
-import ScholarView from "./views/ScholarView.vue";
-import OptionView from "./views/OptionView.vue";
-import MaterialsView from "./views/MaterialsView.vue";
+import FlowView from './views/FlowView.vue';
+import CalendarView from './views/CalendarView.vue';
+import TaskView from './views/TaskView.vue';
+import ScholarView from './views/ScholarView.vue';
+import OptionView from './views/OptionView.vue';
+import MaterialsView from './views/MaterialsView.vue';
 
-const activeTab = ref("scholar"); // default to Scholar as requested
+const activeTab = ref('scholar');
 
 const tabs = [
-  { id: "flow", label: "接下来", icon: Clock, component: FlowView },
-  { id: "calendar", label: "日程", icon: CalendarDays, component: CalendarView },
-  { id: "task", label: "任务", icon: CheckSquare, component: TaskView },
-  { id: "scholar", label: "学业", icon: GraduationCap, component: ScholarView },
-  { id: "materials", label: "资料", icon: LibraryBig, component: MaterialsView },
-  { id: "option", label: "设置", icon: Settings, component: OptionView },
+  { id: 'flow', label: '接下来', icon: Clock, component: FlowView },
+  { id: 'calendar', label: '日程', icon: CalendarDays, component: CalendarView },
+  { id: 'task', label: '任务', icon: CheckSquare, component: TaskView },
+  { id: 'scholar', label: '学业', icon: GraduationCap, component: ScholarView },
+  { id: 'materials', label: '资料', icon: LibraryBig, component: MaterialsView },
+  { id: 'option', label: '设置', icon: Settings, component: OptionView },
 ];
 
-const triggerGlobalSearch = () => {
+function triggerGlobalSearch() {
   if (typeof (window as any).__toggleGlobalSearch === 'function') {
     (window as any).__toggleGlobalSearch();
   }
-};
+}
+
+function handleNavigate(event: Event) {
+  const detail = (event as CustomEvent<{ tab?: string }>).detail;
+  if (!detail?.tab) return;
+  if (tabs.some((tab) => tab.id === detail.tab)) {
+    activeTab.value = detail.tab;
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('celechron:navigate', handleNavigate as EventListener);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('celechron:navigate', handleNavigate as EventListener);
+});
 </script>
 
 <template>
   <div class="main-layout">
     <div class="layout-content">
-      <!-- Dynamic View Rendering -->
       <KeepAlive>
-        <component 
-          :is="tabs.find(t => t.id === activeTab)?.component" 
-          class="view-container fade-enter-active" 
+        <component
+          :is="tabs.find(t => t.id === activeTab)?.component"
+          class="view-container fade-enter-active"
           :key="activeTab"
         />
       </KeepAlive>
     </div>
 
-    <!-- Bottom/Sidebar Navigation -->
     <nav class="bottom-nav glass-panel">
       <div class="nav-items-container">
-        <button 
-          v-for="tab in tabs" 
+        <button
+          v-for="tab in tabs"
           :key="tab.id"
           class="nav-item"
           :class="{ active: activeTab === tab.id }"
@@ -58,7 +72,6 @@ const triggerGlobalSearch = () => {
            <Search class="nav-icon" :size="24" />
            <span class="nav-label">搜索</span>
         </div>
-
       </div>
     </nav>
   </div>
@@ -79,14 +92,13 @@ const triggerGlobalSearch = () => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding-bottom: 80px; /* Space for bottom nav */
+  padding-bottom: 80px;
 }
 
 .view-container {
   min-height: 100%;
 }
 
-/* Glassmorphic Nav Bar */
 .bottom-nav {
   position: fixed;
   bottom: 0;
@@ -149,10 +161,9 @@ const triggerGlobalSearch = () => {
 }
 
 .logout-btn:hover {
-  color: #ef4444;
+  color: var(--accent-amber);
 }
 
-/* Base animations */
 .fade-enter-active {
   animation: fadeIn 0.4s ease-out forwards;
 }
@@ -162,15 +173,14 @@ const triggerGlobalSearch = () => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Media query for Sidebar on Desktop */
 @media (min-width: 768px) {
   .main-layout {
     flex-direction: row;
   }
-  
+
   .layout-content {
     padding-bottom: 0;
-    padding-left: 100px; /* Space for sidebar */
+    padding-left: 100px;
   }
 
   .bottom-nav {
@@ -196,7 +206,7 @@ const triggerGlobalSearch = () => {
   }
 
   .logout-btn {
-    margin-top: auto; /* Push to bottom */
+    margin-top: auto;
   }
 }
 </style>

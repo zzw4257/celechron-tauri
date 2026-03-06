@@ -172,6 +172,7 @@ async function switchAccount(acc: SavedAccount) {
 
   try {
     await invoke("login_zju_command", { username: acc.username, password: realPwd });
+    localStorage.setItem('celechron_active_username', acc.username);
     switchStatus.value = "切换成功，刷新数据中...";
     isSwitching.value = false;
     appAccountSwitch();
@@ -187,6 +188,7 @@ async function handleAddAccount() {
   addFormStatus.value = "正在验证...";
   try {
     await invoke("login_zju_command", { username: addFormUsername.value, password: addFormPassword.value });
+    localStorage.setItem('celechron_active_username', addFormUsername.value.trim());
     await addAccount(addFormUsername.value, addFormPassword.value, addFormNickname.value);
     addFormStatus.value = "添加成功！";
     addFormUsername.value = "";

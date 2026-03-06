@@ -30,6 +30,9 @@
 | **📅 智能课表** | 周视图 + 月视图，自动解析单双周、课程冲突叠层展示 |
 | **✅ 作业追踪** | 接入学在浙大获取待办列表，按截止日倒计时高亮 |
 | **📝 考试安排** | 自动拉取并过滤已结束考试，展示时间 / 地点 / 座位号 |
+| **📚 资料中台** | 同步学在浙大当前课程资料索引，支持本地缓存、预览、搜索与离线打开 |
+| **🤖 AI 综合分析** | 通过 ZeroClaw 对学业数据和已缓存资料做中文摘要、风险提示与复习建议 |
+| **🔔 DingTalk 通知** | 支持 webhook 测试消息、成绩更新提醒、资料同步提醒 |
 | **🌗 深浅双主题** | 全局 Light / Dark 模式，毛玻璃质感 + 微动画 |
 | **📤 CSV 导出** | 一键导出带时间戳的完整成绩单 |
 
@@ -72,6 +75,8 @@ npm install
 # 启动开发服务器 (Vite + Tauri)
 npm run tauri dev
 ```
+
+登录后可直接在“资料”页点击“同步远程资料”，拉取学在浙大当前课程的课件索引；已缓存资料支持本地预览和 ZeroClaw 分析。
 
 ### Build
 
@@ -123,15 +128,27 @@ npm run check
 
 ## ⚙️ Configuration
 
-登录凭据**不会**硬编码在源码中。运行集成测试时通过环境变量传入：
+登录凭据**不会**硬编码在源码中。运行集成测试或本地 smoke 时通过环境变量传入：
 
 ```bash
 ZJU_USERNAME=你的学号 ZJU_PASSWORD=你的密码 cargo test
+ZJU_USERNAME=你的学号 ZJU_PASSWORD=你的密码 npm run smoke:local
 ```
+
+可选的集成配置都在应用内“设置”页完成，不写入仓库：
+
+- `ZeroClaw Endpoint`：外部 ZeroClaw HTTP 服务地址，例如 `https://your-host/api/analyze`
+- `ZeroClaw API Key`：如你的 ZeroClaw gateway 需要 Bearer Token，则填这里
+- `DingTalk Webhook`：群机器人地址
+- `DingTalk Secret`：若机器人开启签名，则一并填写
+
+资料同步不依赖额外凭据，只要求当前账号已成功登录学在浙大。
 
 ## 🙏 Credits
 
-- [Celechron](https://github.com/Celechron/Celechron) — 原始 Flutter 版本的灵感来源与 API 参考
+- [Celechron](https://github.com/Celechron/Celechron) — 原始 Flutter 版本的灵感来源与 GPA / 学期规则参考
+- [zju-learning-assistant](https://github.com/PeiPei233/zju-learning-assistant/) — 资料同步、提醒与课程平台能力 donor
+- [ZeroClaw](https://github.com/zeroclaw-labs/zeroclaw) — 外部 AI 服务接入目标
 - [Tauri](https://tauri.app/) — 轻量级跨平台桌面框架
 - [Vue.js](https://vuejs.org/) — 渐进式前端框架
 - [ECharts](https://echarts.apache.org/) — 数据可视化引擎

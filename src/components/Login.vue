@@ -37,6 +37,7 @@ async function login() {
       currentLoginCreds.value = { username: username.value, password: password.value };
       showSaveModal.value = true;
     } else {
+      localStorage.setItem('celechron_active_username', username.value.trim());
       emit('login-success');
     }
   } catch (err: any) {
@@ -84,6 +85,7 @@ async function quickLogin(acc: SavedAccount) {
     const plainPwd = await getPassword(acc);
     const res = await invoke("login_zju_command", { username: acc.username, password: plainPwd });
     status.value = res as string;
+    localStorage.setItem('celechron_active_username', acc.username);
     emit('login-success');
   } catch (err: any) {
     status.value = typeof err === "string" ? err : (err.message || "快速登录失败");
@@ -99,11 +101,13 @@ async function confirmSaveAccount() {
     pendingSaveNickname.value
   );
   showSaveModal.value = false;
+  localStorage.setItem('celechron_active_username', currentLoginCreds.value.username.trim());
   emit('login-success');
 }
 
 function skipSaveAccount() {
   showSaveModal.value = false;
+  localStorage.setItem('celechron_active_username', currentLoginCreds.value.username.trim());
   emit('login-success');
 }
 </script>

@@ -127,8 +127,31 @@ export interface MaterialAsset {
   exists: boolean;
 }
 
+export interface RemoteMaterialAsset {
+  id: string;
+  uploadId: number;
+  referenceId: number;
+  courseId: number;
+  courseName: string;
+  title: string;
+  fileName: string;
+  sourceType: string;
+  sourceUrl: string;
+  fallbackSourceUrl: string;
+  mimeType?: string | null;
+  sizeBytes: number;
+  updatedAt: number;
+  downloaded: boolean;
+  localRelativePath?: string | null;
+}
+
 export interface MaterialsPayload {
   items: MaterialAsset[];
+  remoteItems: RemoteMaterialAsset[];
+  lastSyncedAt?: number | null;
+  warnings?: string[];
+  remoteCount?: number;
+  availableRemoteCount?: number;
 }
 
 export interface DownloadMaterialInput {
@@ -137,6 +160,22 @@ export interface DownloadMaterialInput {
   title: string;
   fileName?: string;
   source?: string;
+}
+
+export interface RemoteMaterialDownloadInput {
+  uploadId: number;
+  referenceId: number;
+  courseName: string;
+  title: string;
+  fileName: string;
+  sourceType?: string;
+}
+
+export interface MaterialTextPayload {
+  content: string;
+  truncated: boolean;
+  relativePath: string;
+  absolutePath: string;
 }
 
 export interface AiAnalysisInput {

@@ -9,13 +9,13 @@ import { GridComponent, TooltipComponent, TitleComponent, LegendComponent } from
 import VChart from 'vue-echarts';
 import { useTheme } from "../../composables/useTheme";
 import { usePreferences } from "../../composables/usePreferences";
-import { calculateGpaPreview, fetchScholarData, fetchTodos, runAiAnalysis } from "../../services/api";
+import { calculateGpaPreview, fetchScholarData, fetchTodos, runAiAnalysis, sendDingtalkTest } from "../../services/api";
 import { formatTermDisplayName } from "../../utils/semester";
 
 use([CanvasRenderer, LineChart, GridComponent, TooltipComponent, TitleComponent, LegendComponent]);
 
 const { isLightMode } = useTheme();
-const { retakePolicy, hideGpa, courseIdMappings, zeroClawEndpoint, zeroClawApiKey } = usePreferences();
+const { retakePolicy, hideGpa, courseIdMappings, zeroClawEndpoint, zeroClawApiKey, dingtalkWebhookEnabled, dingtalkWebhookUrl, dingtalkWebhookSecret } = usePreferences();
 const isDev = import.meta.env.DEV;
 
 const isLoading = ref(true);
@@ -66,6 +66,11 @@ const aiError = ref('');
 const aiMarkdown = ref('');
 
 const activePolicy = computed(() => retakePolicy.value);
+
+function gradedCoursesStorageKey() {
+  const username = localStorage.getItem('celechron_active_username')?.trim() || 'default';
+  return `knownGradedCourses:${username}`;
+}
 
 const displayGpa = computed(() => {
   const policy = activePolicy.value;
@@ -414,29 +419,33 @@ async function fetchData() {
     // And also check for newly released grades at the same time
     const allCourseIds = new Set<string>();
     const gradedCourseKeys = new Set<string>();
-    
+    const gradedCourseMap = new Map<string, { name: string; score: string; semester: string }>();
+
     semestersList.value.forEach((sem: any) => {
       sem.grades.forEach((g: any) => {
         allCourseIds.add(g.xkkh);
-        
-        // If course has a grade
+
         const cjStr = g.cj?.toString().trim() || "";
         if (!["待录", "缓考", "无效"].includes(cjStr) && cjStr !== "") {
           gradedCourseKeys.add(g.xkkh);
+          gradedCourseMap.set(g.xkkh, {
+            name: g.kcmc || '未知课程',
+            score: cjStr,
+            semester: sem.displayName || formatTermDisplayName(sem.term, sem.name),
+          });
         }
       });
     });
     customGpaSelected.value = allCourseIds;
     customGpaServer.value = null;
 
-    // Check for notifications
-    const cachedGradesStr = localStorage.getItem('knownGradedCourses');
+    const storageKey = gradedCoursesStorageKey();
+    const cachedGradesStr = localStorage.getItem(storageKey);
     if (cachedGradesStr && scholarEnv._meta?.source !== "cache") {
        const knownGrades = new Set<string>(JSON.parse(cachedGradesStr));
        const newGrades = [...gradedCourseKeys].filter(k => !knownGrades.has(k));
-       
+
        if (newGrades.length > 0) {
-         // We have new grades! Let's notify the user
          let permissionGranted = await isPermissionGranted();
          if (!permissionGranted) {
            const permission = await requestPermission();
@@ -444,15 +453,38 @@ async function fetchData() {
          }
          if (permissionGranted) {
            sendNotification({
-             title: '🎉 成绩更新通知',
-             body: `您共有 ${newGrades.length} 门课程的新成绩出炉了！快来看看吧。`
+             title: '成绩更新通知',
+             body: `您共有 ${newGrades.length} 门课程的新成绩出炉了。`
            });
+         }
+
+         if (dingtalkWebhookEnabled.value && dingtalkWebhookUrl.value) {
+           const sample = newGrades
+             .slice(0, 5)
+             .map((key) => {
+               const item = gradedCourseMap.get(key);
+               return item ? `- ${item.name}: ${item.score} (${item.semester})` : `- ${key}`;
+             })
+             .join('\n');
+           try {
+             await sendDingtalkTest({
+               webhookUrl: dingtalkWebhookUrl.value,
+               secret: dingtalkWebhookSecret.value || undefined,
+               title: 'Celechron 成绩更新提醒',
+               text: `### Celechron 成绩更新提醒
+
+- 新成绩数量：${newGrades.length}
+- 同步时间：${new Date().toLocaleString('zh-CN', { hour12: false })}
+${sample || '- 无示例'}`,
+             });
+           } catch (notifyError) {
+             console.error('DingTalk score notification failed:', notifyError);
+           }
          }
        }
     }
-    // Update the cache
     if (scholarEnv._meta?.source !== "cache") {
-      localStorage.setItem('knownGradedCourses', JSON.stringify([...gradedCourseKeys]));
+      localStorage.setItem(storageKey, JSON.stringify([...gradedCourseKeys]));
     }
     semester.value.name = data.semesters?.[0]?.displayName || formatTermDisplayName(data.semesters?.[0]?.term, data.semesters?.[0]?.name || "") || "无数据";
     if (semestersList.value.length > 0) {

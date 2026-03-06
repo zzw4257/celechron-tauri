@@ -1,14 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import type {
-  ApiEnvelope,
-  ApiMeta,
   AiAnalysisInput,
   AiAnalysisPayload,
+  ApiEnvelope,
+  ApiMeta,
   DingtalkTestInput,
   DownloadMaterialInput,
   GpaPreviewInput,
   GpaSummary,
   MaterialsPayload,
+  MaterialTextPayload,
+  RemoteMaterialDownloadInput,
   ScholarPayload,
   TimetablePayload,
   TodosPayload,
@@ -72,15 +74,35 @@ export async function calculateGpaPreview(input: GpaPreviewInput): Promise<GpaSu
   return result as GpaSummary;
 }
 
-
 export async function fetchMaterials(): Promise<ApiEnvelope<MaterialsPayload>> {
   const env = await callEnvelope<MaterialsPayload>('fetch_materials');
   env.data.items = Array.isArray(env.data?.items) ? env.data.items : [];
+  env.data.remoteItems = Array.isArray(env.data?.remoteItems) ? env.data.remoteItems : [];
+  env.data.warnings = Array.isArray(env.data?.warnings) ? env.data.warnings : [];
+  return env;
+}
+
+export async function syncMaterialsIndex(): Promise<ApiEnvelope<MaterialsPayload>> {
+  const env = await callEnvelope<MaterialsPayload>('sync_materials_index');
+  env.data.items = Array.isArray(env.data?.items) ? env.data.items : [];
+  env.data.remoteItems = Array.isArray(env.data?.remoteItems) ? env.data.remoteItems : [];
+  env.data.warnings = Array.isArray(env.data?.warnings) ? env.data.warnings : [];
   return env;
 }
 
 export async function downloadMaterialAsset(input: DownloadMaterialInput): Promise<ApiEnvelope<{ item: unknown }>> {
   return callEnvelope<{ item: unknown }>('download_material_asset', { input });
+}
+
+export async function cacheRemoteMaterial(input: RemoteMaterialDownloadInput): Promise<ApiEnvelope<MaterialsPayload & { item: unknown }>> {
+  const env = await callEnvelope<MaterialsPayload & { item: unknown }>('cache_remote_material', { input });
+  env.data.remoteItems = Array.isArray(env.data?.remoteItems) ? env.data.remoteItems : [];
+  env.data.warnings = Array.isArray(env.data?.warnings) ? env.data.warnings : [];
+  return env;
+}
+
+export async function readMaterialText(relativePath: string, maxChars?: number): Promise<ApiEnvelope<MaterialTextPayload>> {
+  return callEnvelope<MaterialTextPayload>('read_material_text', { input: { relativePath, maxChars } });
 }
 
 export async function openMaterialAsset(relativePath: string): Promise<ApiEnvelope<{ ok: boolean }>> {
