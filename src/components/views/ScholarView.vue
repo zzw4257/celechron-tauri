@@ -346,9 +346,9 @@ watch(accountScope, loadScholar);
             {{ aiError }}
           </StatusBanner>
           <article v-if="aiMarkdown" class="ai-markdown">{{ aiMarkdown }}</article>
-          <div v-else class="state-card">
-            {{ zeroClawEndpoint ? '点击后会输出风险课程、趋势判断和行动建议。' : '尚未配置 ZeroClaw Endpoint。点击“去设置”完成接入。' }}
-          </div>
+          <StatusBanner v-else tone="warning" title="AI 未就绪">
+            {{ zeroClawEndpoint ? '点击后会输出风险课程、趋势判断和行动建议。' : '尚未配置 ZeroClaw Endpoint，点击“去设置”完成接入。' }}
+          </StatusBanner>
         </SectionCard>
       </div>
 
@@ -424,22 +424,7 @@ watch(accountScope, loadScholar);
         </div>
       </SectionCard>
 
-      <SectionCard title="规则说明" subtitle="亮色和暗色都使用同一套 token，不再拼补丁。">
-        <div class="rules-grid">
-          <div class="rule-block">
-            <strong>真值层</strong>
-            <p>标准 GPA、学期 GPA 和 DIY 模拟都调用 Rust 后端，不再由前端自己算第二套口径。</p>
-          </div>
-          <div class="rule-block">
-            <strong>重修策略</strong>
-            <p>`首次成绩` 与 `最高成绩` 会同步影响首屏摘要、趋势图和学期课程表。</p>
-          </div>
-          <div class="rule-block">
-            <strong>显示控制</strong>
-            <p>若设置里开启隐藏 GPA，本页只屏蔽分数展示，不改动后端真实数据与导出逻辑。</p>
-          </div>
-        </div>
-      </SectionCard>
+      <StatusBanner title="GPA 口径">标准 GPA 与 DIY 模拟都复用后端引擎，重修策略切换会同步刷新摘要、趋势和课程表格。</StatusBanner>
     </template>
   </div>
 </template>
@@ -475,7 +460,6 @@ watch(accountScope, loadScholar);
 }
 
 .trend-list,
-.rules-grid,
 .custom-list,
 .custom-side {
   display: flex;
@@ -564,6 +548,19 @@ watch(accountScope, loadScholar);
   overflow-x: auto;
 }
 
+.scholar-table th,
+.scholar-table td {
+  color: var(--text-primary);
+}
+
+.scholar-table tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.scholar-table td:first-child {
+  min-width: 14rem;
+}
+
 .custom-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 140px;
@@ -571,31 +568,14 @@ watch(accountScope, loadScholar);
   align-items: center;
 }
 
-.custom-row span,
-.rule-block p {
+.custom-row span {
   color: var(--text-secondary);
 }
 
-.custom-preview-grid,
-.rules-grid {
+.custom-preview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
-}
-
-.rule-block {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card-sm);
-  background: var(--surface-2);
-  padding: 0.95rem;
-}
-
-.rule-block strong {
-  color: var(--text-primary);
-}
-
-.rule-block p {
-  margin: 0.45rem 0 0;
 }
 
 @media (max-width: 980px) {
@@ -613,8 +593,7 @@ watch(accountScope, loadScholar);
 @media (max-width: 720px) {
   .scholar-summary-grid,
   .scholar-summary-grid.secondary,
-  .custom-preview-grid,
-  .rules-grid {
+  .custom-preview-grid {
     grid-template-columns: 1fr;
   }
 
