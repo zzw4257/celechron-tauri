@@ -713,6 +713,20 @@ onMounted(() => {
 
       <div v-else-if="activePayload" class="calendar-main">
         <SectionCard class="calendar-stage" :title="calendarStageTitle" :subtitle="calendarStageSubtitle">
+          <div class="calendar-stage-toolbar">
+            <div class="calendar-stage-toolbar__copy">
+              <span class="calendar-stage-toolbar__eyebrow">{{ selectedDay?.isToday ? '今天主视图' : '本周选中日' }}</span>
+              <strong>{{ selectedDayLabel }}</strong>
+              <p>{{ selectedDayFocusText }}</p>
+            </div>
+            <div class="calendar-stage-toolbar__stats">
+              <span class="badge accent">{{ calendarMode === 'table' ? '周表模式' : '列表模式' }}</span>
+              <span class="badge" :class="selectedDay?.courses.length ? 'accent' : ''">{{ selectedDay?.courses.length || 0 }} 课</span>
+              <span class="badge" :class="selectedDay?.todos.length ? 'danger' : ''">{{ selectedDay?.todos.length || 0 }} 任务</span>
+              <span class="badge" :class="selectedDay?.exams.length ? 'warning' : ''">{{ selectedDay?.exams.length || 0 }} 考试</span>
+            </div>
+          </div>
+
           <div v-if="calendarMode === 'table'" class="timetable-board-shell">
             <div class="timetable-board" :style="{ gridTemplateRows: `82px repeat(${periodSlots.length}, minmax(92px, auto))` }">
               <div class="timetable-board__corner">节次</div>
@@ -1119,7 +1133,52 @@ onMounted(() => {
 }
 
 .calendar-stage {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 3%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 4%, white) 0%, var(--surface-1) 100%);
+}
+
+.calendar-stage-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+  margin-bottom: 0.95rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 42%, var(--border-subtle));
+  border-radius: calc(var(--radius-card-sm) + 4px);
+  background: linear-gradient(145deg, color-mix(in srgb, white 82%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 6%, var(--surface-1)) 100%);
+  box-shadow: 0 18px 34px color-mix(in srgb, var(--accent-text) 8%, transparent);
+}
+
+.calendar-stage-toolbar__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.calendar-stage-toolbar__eyebrow {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+}
+
+.calendar-stage-toolbar__copy strong {
+  color: var(--text-primary);
+  font-size: 1.02rem;
+}
+
+.calendar-stage-toolbar__copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.calendar-stage-toolbar__stats {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .calendar-detail {
@@ -1129,11 +1188,14 @@ onMounted(() => {
 }
 
 .timetable-board-shell {
-  overflow-x: auto;
+  overflow: auto;
+  max-width: 100%;
   padding: 0.45rem 0.3rem 0.55rem;
   border-radius: 32px;
-  background: linear-gradient(145deg, color-mix(in srgb, white 72%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 2%, var(--surface-1)) 100%);
-  border: 1px solid color-mix(in srgb, var(--accent-border) 14%, var(--border-subtle));
+  background: linear-gradient(145deg, color-mix(in srgb, white 74%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 3%, var(--surface-1)) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 18%, var(--border-subtle));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
+  isolation: isolate;
 }
 
 .timetable-board {
@@ -1149,6 +1211,28 @@ onMounted(() => {
 .timetable-board__cell {
   border-radius: var(--radius-card-sm);
   border: 1px solid var(--border-subtle);
+}
+
+.timetable-board__corner,
+.timetable-board__time {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+}
+
+.timetable-board__corner,
+.timetable-board__day {
+  position: sticky;
+  top: 0;
+}
+
+.timetable-board__corner {
+  z-index: 6;
+}
+
+.timetable-board__day {
+  z-index: 5;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent-text) 6%, transparent);
 }
 
 .timetable-board__corner,
@@ -1250,6 +1334,7 @@ onMounted(() => {
   gap: 0.45rem;
   text-align: left;
   cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 
 .timetable-course-block.selected {
@@ -1304,10 +1389,10 @@ onMounted(() => {
 
 .week-list-day {
   border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
-  border-radius: var(--radius-card-sm);
-  background: linear-gradient(165deg, color-mix(in srgb, var(--accent-text) 7%, var(--surface-1)) 0%, var(--surface-2) 100%);
+  border-radius: calc(var(--radius-card-sm) + 2px);
+  background: linear-gradient(165deg, color-mix(in srgb, white 84%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 8%, var(--surface-2)) 100%);
   padding: 0.9rem;
-  box-shadow: var(--shadow-soft);
+  box-shadow: 0 16px 32px color-mix(in srgb, var(--accent-text) 7%, transparent);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -1416,6 +1501,7 @@ onMounted(() => {
   align-items: flex-start;
   gap: 0.65rem;
   cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 
 .detail-hero {
@@ -1424,10 +1510,11 @@ onMounted(() => {
   justify-content: space-between;
   gap: 0.9rem;
   margin-bottom: 0.95rem;
-  padding: 0.9rem 0.95rem;
-  border: 1px solid var(--border-subtle);
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 38%, var(--border-subtle));
   border-radius: calc(var(--radius-card-sm) + 4px);
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent-text) 6%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  background: linear-gradient(145deg, color-mix(in srgb, white 84%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 7%, var(--surface-1)) 100%);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--accent-text) 7%, transparent);
 }
 
 .detail-hero__copy {
@@ -1489,9 +1576,9 @@ onMounted(() => {
 }
 
 .detail-summary-card {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 92%, transparent);
   border-radius: var(--radius-card-sm);
-  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, white 86%, var(--surface-1)) 0%, var(--surface-1) 100%);
   padding: 0.8rem 0.85rem;
   display: flex;
   flex-direction: column;
@@ -1623,6 +1710,15 @@ onMounted(() => {
 @media (max-width: 720px) {
   .calendar-command__hero {
     gap: 0.9rem;
+  }
+
+  .calendar-stage-toolbar {
+    flex-direction: column;
+    padding: 0.85rem 0.88rem;
+  }
+
+  .calendar-stage-toolbar__stats {
+    justify-content: flex-start;
   }
 
   .view-switch {

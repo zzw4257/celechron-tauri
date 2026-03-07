@@ -124,10 +124,16 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 92%, transparent);
+  border-radius: calc(var(--radius-card-sm) + 4px);
+  background: linear-gradient(165deg, color-mix(in srgb, white 88%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 5%, var(--surface-1)) 100%);
+  box-shadow: 0 18px 36px color-mix(in srgb, var(--accent-text) 8%, transparent);
 }
 
 .pomodoro-widget.compact {
   gap: 0.75rem;
+  padding: 0.9rem;
 }
 
 .pomo-header,
@@ -157,14 +163,26 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
   color: var(--text-secondary);
 }
 
+.pomo-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.8rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent-text) 10%, white);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
 .preset-btn,
 .ctrl-btn {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 92%, transparent);
   border-radius: var(--radius-pill);
-  background: var(--surface-2);
+  background: linear-gradient(180deg, color-mix(in srgb, white 84%, var(--surface-1)) 0%, var(--surface-2) 100%);
   color: var(--text-primary);
   cursor: pointer;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
 }
 
 .preset-btn {
@@ -173,9 +191,10 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
 }
 
 .preset-btn.active {
-  background: var(--surface-accent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 14%, white) 0%, color-mix(in srgb, var(--accent-text) 8%, var(--surface-1)) 100%);
   border-color: var(--accent-border);
-  color: var(--accent-text);
+  color: var(--text-primary);
+  box-shadow: 0 10px 18px color-mix(in srgb, var(--accent-text) 8%, transparent);
 }
 
 .pomo-stage {
@@ -186,28 +205,32 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
 .pomo-dial {
   width: min(100%, 220px);
   aspect-ratio: 1;
-  padding: 10px;
+  padding: 12px;
   border-radius: 50%;
-  box-shadow: 0 20px 44px color-mix(in srgb, var(--accent-text) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 42%, var(--border-subtle));
+  box-shadow: 0 22px 48px color-mix(in srgb, var(--accent-text) 16%, transparent);
 }
 
 .pomo-dial__inner {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
-  border: 1px solid var(--border-subtle);
+  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, white 90%, var(--surface-1)) 0%, color-mix(in srgb, var(--surface-1) 96%, var(--accent-text)) 100%);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 92%, transparent);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 70%, transparent);
 }
 
 .time {
-  font-size: clamp(2.4rem, 4vw, 3.35rem);
+  font-size: clamp(2.55rem, 4vw, 3.45rem);
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  text-shadow: 0 4px 14px color-mix(in srgb, var(--accent-text) 10%, transparent);
 }
 
 .pomo-side {
@@ -218,10 +241,11 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
 }
 
 .pomo-mini-stat {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 92%, transparent);
   border-radius: var(--radius-card-sm);
-  background: var(--surface-2);
+  background: linear-gradient(180deg, color-mix(in srgb, white 86%, var(--surface-1)) 0%, var(--surface-2) 100%);
   padding: 0.95rem;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
 }
 
 .ctrl-btn {
@@ -240,13 +264,14 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
 }
 
 .main-btn {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent-text);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 90%, white 10%) 0%, var(--accent-text) 100%);
+  border-color: color-mix(in srgb, var(--accent-border) 82%, var(--accent-text));
+  color: var(--text-on-accent);
+  box-shadow: 0 16px 28px color-mix(in srgb, var(--accent-text) 18%, transparent);
 }
 
 .stop-btn {
-  background: var(--danger-soft);
+  background: linear-gradient(180deg, color-mix(in srgb, white 86%, var(--danger-soft)) 0%, var(--danger-soft) 100%);
   border-color: var(--danger-border);
   color: var(--danger-text);
 }

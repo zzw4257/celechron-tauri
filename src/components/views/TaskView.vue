@@ -306,15 +306,32 @@ watch(accountScope, () => {
 .task-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.85rem;
+  gap: 0.9rem;
   align-items: center;
-  padding: 0.95rem 0.2rem;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 90%, transparent);
+  border-radius: calc(var(--radius-card-sm) + 2px);
+  background: linear-gradient(160deg, color-mix(in srgb, white 86%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--accent-text) 6%, transparent);
 }
 
-.task-card:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
+.task-card.overdue {
+  border-color: color-mix(in srgb, var(--danger-border) 80%, var(--border-subtle));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--danger-soft) 88%, white) 0%, var(--surface-1) 100%);
+}
+
+.task-card.today {
+  border-color: color-mix(in srgb, var(--warning-border) 78%, var(--border-subtle));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--warning-soft) 82%, white) 0%, var(--surface-1) 100%);
+}
+
+.task-card.week {
+  border-color: color-mix(in srgb, var(--accent-border) 78%, var(--border-subtle));
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-soft) 80%, white) 0%, var(--surface-1) 100%);
+}
+
+.task-card.later {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--surface-2) 82%, white) 0%, var(--surface-1) 100%);
 }
 
 .task-card__main {
@@ -330,6 +347,8 @@ watch(accountScope, () => {
 
 .task-card__head strong {
   color: var(--text-primary);
+  font-size: 1rem;
+  line-height: 1.3;
 }
 
 .task-card__main p,
@@ -338,9 +357,14 @@ watch(accountScope, () => {
   color: var(--text-secondary);
 }
 
+.task-card__meta time {
+  font-variant-numeric: tabular-nums;
+}
+
 .task-card__meta {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.7rem;
 }
 
