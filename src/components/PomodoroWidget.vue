@@ -5,6 +5,7 @@ import { CheckCircle2, Pause, Play, Square } from 'lucide-vue-next';
 const isRunning = ref(false);
 const timeLeft = ref(25 * 60);
 const totalTime = ref(25 * 60);
+const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false });
 let timerInterval: number | null = null;
 
 const progress = computed(() => {
@@ -72,7 +73,7 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
 </script>
 
 <template>
-  <div class="pomodoro-widget">
+  <div class="pomodoro-widget" :class="{ compact: props.compact }">
     <div class="pomo-header">
       <div>
         <h3><CheckCircle2 :size="16" /> 专注番茄钟</h3>
@@ -123,6 +124,10 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.pomodoro-widget.compact {
+  gap: 0.75rem;
 }
 
 .pomo-header,
@@ -250,6 +255,28 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'default'
   opacity: 0.45;
   cursor: not-allowed;
   transform: none;
+}
+
+.pomodoro-widget.compact .pomo-stage {
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.pomodoro-widget.compact .pomo-dial {
+  width: min(100%, 170px);
+}
+
+.pomodoro-widget.compact .time {
+  font-size: clamp(2rem, 3vw, 2.6rem);
+}
+
+.pomodoro-widget.compact .pomo-side {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pomodoro-widget.compact .ctrl-btn {
+  min-height: 2.45rem;
+  padding: 0.55rem 0.9rem;
 }
 
 @media (max-width: 720px) {

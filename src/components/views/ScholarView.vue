@@ -46,6 +46,7 @@ const customMode = ref(false);
 const customLoading = ref(false);
 const customPreview = ref<GpaSummary | null>(null);
 const customScores = ref<Record<string, string>>({});
+const simulationScope = ref<'recent-window' | 'selected-semester' | 'current-term'>('recent-window');
 
 function navigateToSettings() {
   window.dispatchEvent(new CustomEvent('celechron:navigate', { detail: { tab: 'option' } }));
@@ -193,8 +194,92 @@ const gradeRows = computed(() => {
   });
 });
 
+const currentTermCourseRows = computed(() => {
+  return (scholar.value?.currentCourses || []).map((course) => ({
+    id: `current-${course.courseId || course.courseCode || course.courseName}`,
+    courseName: course.courseName,
+    scoreText: '待录',
+    credit: numeric(course.credit),
+    fivePoint: 0,
+    fourPoint: 0,
+    hundredPoint: NaN,
+    hasNumericScore: false,
+    isPending: true,
+    isDeferred: false,
+    priorityLabel: '当前在读',
+    priorityTone: 'accent',
+    scorePlaceholder: '输入预计分',
+    isMajor: majorCourseIds.value.has(course.courseCode) || majorCourseIds.value.has(course.courseId),
+    raw: {
+      xkkh: `current-${course.courseId || course.courseCode || course.courseName}`,
+      kcmc: course.courseName,
+      kcdm: course.courseCode,
+      credit: course.credit,
+      cj: '待录',
+      semesterName: course.term?.name || '',
+    },
+  }));
+});
+
+const lastFinishedSemester = computed(() => semesters.value[0] || null);
+const lastFinishedRows = computed(() => {
+  const current = lastFinishedSemester.value;
+  if (!current) return [];
+  return (current.grades || []).map((grade: any) => {
+    const fallbackId = String(grade.xkkh || `${current.name}-${grade.kcmc || grade.kcdm || 'course'}`);
+    const kcdm = String(grade.kcdm || '');
+    const scoreText = normalizeScoreText(grade.cj);
+    const hundredPoint = numeric(grade.hundredPoint, NaN);
+    const hasNumericScore = Number.isFinite(hundredPoint);
+    return {
+      id: fallbackId,
+      courseName: String(grade.kcmc || '未命名课程'),
+      scoreText,
+      credit: numeric(grade.credit ?? grade.xf),
+      fivePoint: numeric(grade.fivePoint),
+      fourPoint: numeric(grade.fourPoint),
+      hundredPoint,
+      hasNumericScore,
+      isPending: isPendingScoreText(scoreText) || !hasNumericScore,
+      isDeferred: isDeferredScoreText(scoreText),
+      priorityLabel: isDeferredScoreText(scoreText) ? '缓考 / 待补录' : ((isPendingScoreText(scoreText) || !hasNumericScore) ? '未出分' : '已出分'),
+      priorityTone: isDeferredScoreText(scoreText) ? 'warning' : ((isPendingScoreText(scoreText) || !hasNumericScore) ? 'accent' : ''),
+      scorePlaceholder: hasNumericScore ? hundredPoint.toFixed(1) : '输入预计分',
+      isMajor: majorCourseIds.value.has(fallbackId) || majorCourseIds.value.has(kcdm),
+      raw: { ...grade, xkkh: fallbackId },
+    };
+  });
+});
+
+const simulationRows = computed(() => {
+  if (simulationScope.value === 'selected-semester') return gradeRows.value;
+  if (simulationScope.value === 'current-term') return currentTermCourseRows.value;
+  const map = new Map<string, any>();
+  for (const row of [...lastFinishedRows.value, ...currentTermCourseRows.value]) {
+    const key = String(row.raw?.kcdm || row.id || row.courseName);
+    if (!map.has(key)) map.set(key, row);
+  }
+  return [...map.values()];
+});
+
+const simulationSummaryBase = computed(() => {
+  if (simulationScope.value === 'selected-semester') return semesterSummary.value;
+  if (simulationScope.value === 'recent-window') {
+    return lastFinishedSemester.value?.gpaByPolicy?.[retakePolicy.value] || lastFinishedSemester.value?.gpaByPolicy?.first || EMPTY_GPA;
+  }
+  return EMPTY_GPA;
+});
+
+const currentLearningTermLabel = computed(() => scholar.value?.currentCourses?.[0]?.term?.displayName || '当前在读学期');
+
+const simulationScopeLabel = computed(() => {
+  if (simulationScope.value === 'selected-semester') return selectedSemester.value?.displayName || '所选学期';
+  if (simulationScope.value === 'current-term') return currentLearningTermLabel.value;
+  return `${lastFinishedSemester.value?.displayName || '最近已出分学期'} + ${currentLearningTermLabel.value}`;
+});
+
 const customRows = computed(() => {
-  return [...gradeRows.value]
+  return [...simulationRows.value]
     .filter((row) => row.credit > 0)
     .sort((left, right) => Number(right.isPending) - Number(left.isPending)
       || Number(left.hasNumericScore) - Number(right.hasNumericScore)
@@ -206,22 +291,24 @@ const customPriorityRows = computed(() => customRows.value.filter((row) => row.i
 const customSupplementRows = computed(() => customRows.value.filter((row) => !row.isPending));
 const customFilledCount = computed(() => Object.values(customScores.value).filter((value) => String(value).trim() !== '' && Number.isFinite(Number(value))).length);
 const customGuideText = computed(() => {
+  if (simulationScope.value === 'current-term') {
+    return `只模拟 ${currentLearningTermLabel.value} 仍在上的课程，适合给本学期尚未出分的课程预估最终均绩。`;
+  }
   if (customPriorityRows.value.length) {
-    return `优先给本学期 ${customPriorityRows.value.length} 门缓考、待录或暂未出分课程填写预估分；已出分课程只作为补充压力测试。`;
+    return `默认覆盖“${simulationScopeLabel.value}”。优先给其中 ${customPriorityRows.value.length} 门缓考、待录、暂未出分或当前在读课程填写预估分；已出分课程只作为补充压力测试。`;
   }
   if (customRows.value.length) {
-    return '当前学期没有待录/缓考课程，DIY 区会退化成已出分课程的压力测试模式。';
+    return `${simulationScopeLabel.value} 当前没有待录、缓考或在读课程，DIY 区会退化成已出分课程的压力测试模式。`;
   }
-  return '当前学期没有可用于模拟的课程。';
+  return '当前范围内没有可用于模拟的课程。';
 });
-
 
 const comparisonRows = computed(() => {
   if (!customPreview.value) return [];
   return [
-    { label: '五分制', max: 5, original: semesterSummary.value.fivePoint, preview: customPreview.value.fivePoint },
-    { label: '4.3 制', max: 4.3, original: semesterSummary.value.fourPoint, preview: customPreview.value.fourPoint },
-    { label: '平均分', max: 100, original: semesterSummary.value.hundredPoint, preview: customPreview.value.hundredPoint },
+    { label: '五分制', max: 5, original: simulationSummaryBase.value.fivePoint, preview: customPreview.value.fivePoint },
+    { label: '4.3 制', max: 4.3, original: simulationSummaryBase.value.fourPoint, preview: customPreview.value.fourPoint },
+    { label: '平均分', max: 100, original: simulationSummaryBase.value.hundredPoint, preview: customPreview.value.hundredPoint },
   ].map((item) => ({
     ...item,
     delta: item.preview - item.original,
@@ -233,10 +320,10 @@ const comparisonRows = computed(() => {
 const customSummaryMetrics = computed(() => {
   if (!customPreview.value) return [];
   return [
-    { label: 'DIY 五分', value: customPreview.value.fivePoint.toFixed(2), delta: formatDelta(customPreview.value.fivePoint - semesterSummary.value.fivePoint) },
-    { label: 'DIY 4.3', value: customPreview.value.fourPoint.toFixed(2), delta: formatDelta(customPreview.value.fourPoint - semesterSummary.value.fourPoint) },
-    { label: 'DIY 平均分', value: customPreview.value.hundredPoint.toFixed(2), delta: formatDelta(customPreview.value.hundredPoint - semesterSummary.value.hundredPoint) },
-    { label: 'DIY 学分', value: customPreview.value.totalCredits.toFixed(1), delta: formatDelta(customPreview.value.totalCredits - semesterSummary.value.totalCredits, 1) },
+    { label: 'DIY 五分', value: customPreview.value.fivePoint.toFixed(2), delta: formatDelta(customPreview.value.fivePoint - simulationSummaryBase.value.fivePoint) },
+    { label: 'DIY 4.3', value: customPreview.value.fourPoint.toFixed(2), delta: formatDelta(customPreview.value.fourPoint - simulationSummaryBase.value.fourPoint) },
+    { label: 'DIY 平均分', value: customPreview.value.hundredPoint.toFixed(2), delta: formatDelta(customPreview.value.hundredPoint - simulationSummaryBase.value.hundredPoint) },
+    { label: 'DIY 学分', value: customPreview.value.totalCredits.toFixed(1), delta: formatDelta(customPreview.value.totalCredits - simulationSummaryBase.value.totalCredits, 1) },
   ];
 });
 
@@ -303,7 +390,14 @@ async function analyzeScholar() {
 }
 
 async function calculateCustomPreview() {
-  if (!selectedSemester.value) return;
+  if (simulationScope.value === 'selected-semester' && !selectedSemester.value) {
+    errorMsg.value = '当前没有可模拟的学期成绩。';
+    return;
+  }
+  if (simulationRows.value.length === 0) {
+    errorMsg.value = '当前范围内没有可用于模拟的课程。';
+    return;
+  }
   customLoading.value = true;
   errorMsg.value = '';
 
@@ -317,14 +411,14 @@ async function calculateCustomPreview() {
     if (Object.keys(simulatedScores).length === 0) {
       customPreview.value = null;
       errorMsg.value = customPriorityRows.value.length
-        ? '先给缓考、待录或未出分课程输入预计分，再计算本学期模拟。'
-        : '先输入至少一门课程的预计分，再计算当前学期模拟。';
+        ? '先给当前范围内的缓考、待录、未出分或在读课程输入预计分，再计算模拟结果。'
+        : '先输入至少一门课程的预计分，再计算当前范围的模拟结果。';
       return;
     }
 
-    const previewGrades = (selectedSemester.value.grades || []).map((grade: any) => ({
-      ...grade,
-      xkkh: String(grade.xkkh || `${selectedSemester.value?.name}-${grade.kcmc || grade.kcdm || 'course'}`),
+    const previewGrades = simulationRows.value.map((row) => ({
+      ...row.raw,
+      xkkh: String(row.raw?.xkkh || row.id),
     }));
 
     customPreview.value = await calculateGpaPreview({
@@ -380,7 +474,7 @@ async function loadScholar() {
   }
 }
 
-watch(selectedSemesterName, () => {
+watch([selectedSemesterName, simulationScope], () => {
   customScores.value = {};
   customPreview.value = null;
 });
@@ -536,10 +630,16 @@ watch(accountScope, loadScholar);
         </div>
       </SectionCard>
 
-      <SectionCard v-if="customMode" title="DIY 均绩模拟" subtitle="优先给本学期缓考、待录与未出分课程做预估，右侧给出可视化对比。">
+      <SectionCard v-if="customMode" title="DIY 均绩模拟" subtitle="模拟范围不再绑死当前选中的成绩学期；可在最近窗口、当前在读与所选学期之间切换。">
         <div class="custom-grid">
           <div class="custom-list">
+            <SegmentedFilter v-model="simulationScope" :options="[
+              { value: 'recent-window', label: '上学期+本学期' },
+              { value: 'current-term', label: '仅本学期' },
+              { value: 'selected-semester', label: '所选学期' },
+            ]" />
             <StatusBanner title="模拟重点" tone="info">{{ customGuideText }}</StatusBanner>
+            <div class="custom-scope-caption">当前范围：{{ simulationScopeLabel }}</div>
 
             <div v-if="customRows.length === 0" class="state-card">当前学期暂无可模拟课程。</div>
 
@@ -600,7 +700,7 @@ watch(accountScope, loadScholar);
           <div class="custom-side">
             <div class="custom-side__actions">
               <ActionPill tone="accent" :disabled="customLoading || customRows.length === 0" @click="calculateCustomPreview">
-                {{ customLoading ? '计算中…' : '计算本学期预估均绩' }}
+                {{ customLoading ? '计算中…' : '计算当前范围预估均绩' }}
               </ActionPill>
               <span class="badge accent">已填写 {{ customFilledCount }} 门</span>
             </div>
@@ -612,7 +712,7 @@ watch(accountScope, loadScholar);
                 <small>{{ hideGpa ? '****' : item.delta }}</small>
               </div>
             </div>
-            <div v-else class="state-card">先给本学期待录/未出分课程输入预计分，再点击计算；右侧会直接对比当前值和模拟值。</div>
+            <div v-else class="state-card">先给当前范围内的待录、缓考或在读课程输入预计分，再点击计算；右侧会直接对比当前值和模拟值。</div>
 
             <div v-if="customPreview" class="comparison-list">
               <article v-for="item in comparisonRows" :key="item.label" class="comparison-row">
@@ -849,6 +949,11 @@ watch(accountScope, loadScholar);
 
 .scholar-table td:first-child {
   min-width: 14rem;
+}
+
+.custom-scope-caption {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
 }
 
 .custom-group {

@@ -38,8 +38,8 @@ async function callEnvelope<T>(command: string, args?: Record<string, unknown>):
   return env;
 }
 
-export async function fetchScholarData(): Promise<ApiEnvelope<ScholarPayload>> {
-  const env = await callEnvelope<ScholarPayload>('fetch_scholar_data');
+export async function fetchScholarData(options?: { forceRefresh?: boolean }): Promise<ApiEnvelope<ScholarPayload>> {
+  const env = await callEnvelope<ScholarPayload>('fetch_scholar_data', { forceRefresh: options?.forceRefresh });
   if (!env.data?.gpaByPolicy?.first || !env.data?.gpaByPolicy?.highest) {
     throw new Error('Invalid scholar payload: gpaByPolicy missing');
   }
@@ -47,12 +47,14 @@ export async function fetchScholarData(): Promise<ApiEnvelope<ScholarPayload>> {
   env.data.retakePolicySupported = Array.isArray(env.data.retakePolicySupported)
     ? env.data.retakePolicySupported
     : ['first', 'highest'];
+  env.data.currentCourses = Array.isArray(env.data.currentCourses) ? env.data.currentCourses : [];
   return env;
 }
 
 export async function fetchTimetable(args: {
   year: string;
   semester: string;
+  forceRefresh?: boolean;
 }): Promise<ApiEnvelope<TimetablePayload>> {
   const env = await callEnvelope<TimetablePayload>('fetch_timetable', args);
   if (!env.data?.term || !Array.isArray(env.data?.sessions)) {
@@ -61,8 +63,8 @@ export async function fetchTimetable(args: {
   return env;
 }
 
-export async function fetchTodos(): Promise<ApiEnvelope<TodosPayload>> {
-  const env = await callEnvelope<TodosPayload>('fetch_todos');
+export async function fetchTodos(options?: { forceRefresh?: boolean }): Promise<ApiEnvelope<TodosPayload>> {
+  const env = await callEnvelope<TodosPayload>('fetch_todos', { forceRefresh: options?.forceRefresh });
   env.data.todo_list = Array.isArray(env.data?.todo_list) ? env.data.todo_list : [];
   return env;
 }

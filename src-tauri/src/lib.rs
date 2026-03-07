@@ -20,12 +20,24 @@ use crate::term::{
     descriptor_from_name, descriptor_from_parts, load_term_time_config,
     normalize_academic_semester, normalize_timetable_sessions,
 };
+use chrono::{Datelike, Local};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
 const SCHOLAR_CACHE_FILE: &str = "cache_scholar_v2.json";
 const TODOS_CACHE_FILE: &str = "cache_todos_v2.json";
+
+
+fn annotate_cache_fallback(mut env: Value, requested_fresh: bool, reason: &str) -> Value {
+    if let Some(meta) = env.get_mut("_meta").and_then(Value::as_object_mut) {
+        meta.insert("source".to_string(), json!("cache"));
+        meta.insert("requestedFresh".to_string(), json!(requested_fresh));
+        meta.insert("fallbackReason".to_string(), json!(reason));
+    }
+    env
+}
+
 use std::sync::Arc;
 #[cfg(desktop)]
 use tauri::Manager;
@@ -66,17 +78,21 @@ async fn login_zju_command(
 async fn fetch_scholar_data(
     app: AppHandle,
     state: State<'_, Arc<AppState>>,
+    force_refresh: Option<bool>,
 ) -> Result<Value, String> {
-    let (transcript_r, major_r, exams_r, practice_r) = tokio::join!(
+    let force_refresh = force_refresh.unwrap_or(false);
+
+    let (transcript_r, major_r, exams_r, practice_r, learning_courses_r) = tokio::join!(
         zdbk::get_transcript(&state),
         zdbk::get_major_grades(&state),
         zdbk::get_exams(&state),
         zdbk::get_practice_scores(&state),
+        courses::get_learning_courses(&state),
     );
 
     if let Err(error) = transcript_r {
         if let Some(cached) = cache_read_envelope(&app, SCHOLAR_CACHE_FILE) {
-            return Ok(cached);
+            return Ok(annotate_cache_fallback(cached, force_refresh, &error));
         }
         return Err(error);
     }
@@ -153,6 +169,71 @@ async fn fetch_scholar_data(
         .map(|(_, value)| value)
         .collect::<Vec<_>>();
 
+    let current_term = {
+        let today = Local::now().date_naive();
+        let year = today.year();
+        let month = today.month();
+        if (2..=8).contains(&month) {
+            descriptor_from_parts((year - 1).to_string(), "2")
+        } else {
+            let start_year = if month == 1 { year - 1 } else { year };
+            descriptor_from_parts(start_year.to_string(), "1")
+        }
+    };
+
+    let current_courses = learning_courses_r
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|course| {
+            let course_id = course
+                .get("id")
+                .and_then(Value::as_i64)
+                .map(|value| value.to_string())
+                .unwrap_or_default();
+            let course_code = course
+                .get("course_code")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let course_name = course
+                .get("display_name")
+                .or_else(|| course.get("name"))
+                .or_else(|| course.get("second_name"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("未命名课程")
+                .to_string();
+            let credit = course
+                .get("credit")
+                .and_then(|value| value.as_f64().or_else(|| value.as_str().and_then(|v| v.parse::<f64>().ok())))
+                .unwrap_or(0.0);
+            if course_name.is_empty() || credit <= 0.0 {
+                return None;
+            }
+            let teacher = course
+                .get("instructors")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(|item| item.get("name"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("")
+                .to_string();
+            Some(json!({
+                "id": if course_id.is_empty() { format!("current-{}", course_name) } else { course_id.clone() },
+                "courseId": course_id,
+                "courseCode": course_code,
+                "courseName": course_name,
+                "credit": credit,
+                "teacher": teacher,
+                "term": current_term.clone(),
+            }))
+        })
+        .collect::<Vec<_>>();
+
     let payload = json!({
         "gpa": overall_first,
         "gpaByPolicy": {
@@ -170,6 +251,7 @@ async fn fetch_scholar_data(
             "pt4": practice.pt4,
         },
         "semesters": semesters,
+        "currentCourses": current_courses,
     });
 
     let env = envelope(payload, "network");
@@ -183,7 +265,9 @@ async fn fetch_timetable(
     state: State<'_, Arc<AppState>>,
     year: String,
     semester: String,
+    force_refresh: Option<bool>,
 ) -> Result<Value, String> {
+    let force_refresh = force_refresh.unwrap_or(false);
     let academic_semester = normalize_academic_semester(&semester)
         .ok_or_else(|| format!("不支持的学期参数: {semester}"))?;
     let term = descriptor_from_parts(year.clone(), academic_semester);
@@ -214,7 +298,7 @@ async fn fetch_timetable(
         }
         Err(error) => {
             if let Some(cached) = cache_read_envelope(&app, &cache_name) {
-                return Ok(cached);
+                return Ok(annotate_cache_fallback(cached, force_refresh, &error));
             }
             Err(error)
         }
@@ -303,7 +387,12 @@ fn normalize_todos_payload(raw: Value) -> Value {
 }
 
 #[tauri::command]
-async fn fetch_todos(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<Value, String> {
+async fn fetch_todos(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    force_refresh: Option<bool>,
+) -> Result<Value, String> {
+    let force_refresh = force_refresh.unwrap_or(false);
     match courses::get_todos(&state).await {
         Ok(data) => {
             let env = envelope(normalize_todos_payload(data), "network");
@@ -312,7 +401,7 @@ async fn fetch_todos(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<
         }
         Err(error) => {
             if let Some(cached) = cache_read_envelope(&app, TODOS_CACHE_FILE) {
-                return Ok(cached);
+                return Ok(annotate_cache_fallback(cached, force_refresh, &error));
             }
             Err(error)
         }

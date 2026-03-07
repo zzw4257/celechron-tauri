@@ -24,6 +24,7 @@ const isOffline = ref(false);
 const errorMsg = ref('');
 const copiedId = ref('');
 const offlineTime = ref('');
+const refreshStatus = ref('');
 const buckets = ref<Record<'overdue' | 'today' | 'week' | 'later', TaskBucketItem[]>>({
   overdue: [],
   today: [],
@@ -55,6 +56,11 @@ function formatRemain(ms: number) {
   return `${Math.ceil(diffDays)} 天后`;
 }
 
+function refreshFallbackMessage(meta?: { requestedFresh?: boolean; source?: string; fallbackReason?: string }) {
+  if (!meta?.requestedFresh || meta.source !== 'cache') return '';
+  return `已尝试强制刷新，但网络失败，当前回退到本地缓存${meta.fallbackReason ? `：${meta.fallbackReason}` : ''}。`;
+}
+
 async function copyLink(item: TaskBucketItem) {
   if (!item.linkUrl) return;
   await navigator.clipboard.writeText(item.linkUrl);
@@ -64,13 +70,15 @@ async function copyLink(item: TaskBucketItem) {
   }, 1600);
 }
 
-async function loadTasks() {
+async function loadTasks(forceRefresh = false) {
   isLoading.value = true;
   errorMsg.value = '';
   copiedId.value = '';
+  refreshStatus.value = '';
 
   try {
-    const env = await fetchTodos();
+    const env = await fetchTodos({ forceRefresh });
+    refreshStatus.value = refreshFallbackMessage(env._meta as any);
     isOffline.value = env._meta?.source === 'cache';
     offlineTime.value = env._meta?.timestamp
       ? new Date(env._meta.timestamp * 1000).toLocaleString('zh-CN', { hour12: false })
@@ -123,7 +131,9 @@ async function loadTasks() {
 }
 
 onMounted(loadTasks);
-watch(accountScope, loadTasks);
+watch(accountScope, () => {
+  void loadTasks();
+});
 </script>
 
 <template>
@@ -131,28 +141,28 @@ watch(accountScope, loadTasks);
     <header class="page-header">
       <div>
         <h1>任务</h1>
-        <p class="page-subtitle">后端已标准化截止时间与真实链接，只在可访问时才显示复制入口。</p>
+        <p class="page-subtitle">任务与接下来优先；番茄钟保留为次级工具，只在你需要时展开使用。</p>
       </div>
-      <span class="badge" :class="isOffline ? 'warning' : 'accent'">{{ isOffline ? '缓存模式' : '实时同步' }}</span>
+      <div class="task-header-actions">
+        <ActionPill tone="accent" :disabled="isLoading" @click="loadTasks(true)">强制刷新</ActionPill>
+        <span class="badge" :class="isOffline ? 'warning' : 'accent'">{{ isOffline ? '缓存模式' : '实时同步' }}</span>
+      </div>
     </header>
 
-    <div class="task-grid">
-      <SectionCard title="节奏区" subtitle="番茄钟保留，但压缩到次级位置。" dense>
-        <PomodoroWidget />
-      </SectionCard>
-
-      <SectionCard title="任务摘要" subtitle="首屏只保留真正影响节奏的信息。" dense>
-        <div class="task-stats">
-          <InlineStat label="总任务" :value="String(summary.total)" emphasis />
-          <InlineStat label="24h 内" :value="String(summary.today)" />
-          <InlineStat label="7 天内" :value="String(summary.week)" />
-          <InlineStat label="已逾期" :value="String(summary.overdue)" />
-        </div>
-      </SectionCard>
-    </div>
+    <SectionCard title="任务摘要" subtitle="首屏先看真正影响节奏的事。" dense>
+      <div class="task-stats">
+        <InlineStat label="总任务" :value="String(summary.total)" emphasis />
+        <InlineStat label="24h 内" :value="String(summary.today)" />
+        <InlineStat label="7 天内" :value="String(summary.week)" />
+        <InlineStat label="已逾期" :value="String(summary.overdue)" />
+      </div>
+    </SectionCard>
 
     <StatusBanner v-if="errorMsg" tone="danger" title="同步失败">
       {{ errorMsg }}
+    </StatusBanner>
+    <StatusBanner v-else-if="refreshStatus" tone="warning" title="强制刷新回退">
+      {{ refreshStatus }}
     </StatusBanner>
     <StatusBanner v-else-if="isOffline && offlineTime" tone="warning" title="缓存回退">
       当前展示的是本地缓存，更新时间 {{ offlineTime }}。
@@ -165,11 +175,7 @@ watch(accountScope, loadTasks);
       <div class="state-card">请稍候，正在整理任务优先级。</div>
     </SectionCard>
 
-    <SectionCard
-      v-else-if="summary.total === 0"
-      title="暂无待办"
-      subtitle="当前没有需要你跟进的任务。"
-    >
+    <SectionCard v-else-if="summary.total === 0" title="暂无待办" subtitle="当前没有需要你跟进的任务。">
       <div class="state-card">最近没有截止项，适合回头处理资料或复盘成绩。</div>
     </SectionCard>
 
@@ -246,6 +252,10 @@ watch(accountScope, loadTasks);
         </div>
       </SectionCard>
     </div>
+
+    <SectionCard title="节奏工具" subtitle="保留轻量番茄钟，但不抢任务首屏。" dense class="task-pomodoro-card">
+      <PomodoroWidget compact />
+    </SectionCard>
   </div>
 </template>
 
@@ -258,10 +268,15 @@ watch(accountScope, loadTasks);
   gap: 1rem;
 }
 
-.task-grid {
-  display: grid;
-  grid-template-columns: minmax(300px, 0.95fr) minmax(0, 1.05fr);
-  gap: 1rem;
+.task-header-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.task-pomodoro-card {
+  margin-top: 0.25rem;
 }
 
 .task-stats {
@@ -312,10 +327,6 @@ watch(accountScope, loadTasks);
 }
 
 @media (max-width: 900px) {
-  .task-grid {
-    grid-template-columns: 1fr;
-  }
-
   .task-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

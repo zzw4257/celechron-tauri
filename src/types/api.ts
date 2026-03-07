@@ -9,6 +9,8 @@ export type MaterialWeekBucket = 'current' | 'other' | 'unknown';
 export interface ApiMeta {
   source: MetaSource;
   timestamp: number;
+  requestedFresh?: boolean;
+  fallbackReason?: string;
 }
 
 export interface ApiEnvelope<T> {
@@ -40,6 +42,16 @@ export interface ScholarSemester {
   credits?: number;
 }
 
+export interface CurrentLearningCourse {
+  id: string;
+  courseId: string;
+  courseCode: string;
+  courseName: string;
+  credit: number;
+  teacher?: string;
+  term: TermDescriptor;
+}
+
 export interface ScholarPayload {
   gpa?: GpaSummary;
   gpaByPolicy: {
@@ -57,6 +69,7 @@ export interface ScholarPayload {
     pt4: number;
   };
   semesters: ScholarSemester[];
+  currentCourses?: CurrentLearningCourse[];
 }
 
 export interface SessionTimeSlot {

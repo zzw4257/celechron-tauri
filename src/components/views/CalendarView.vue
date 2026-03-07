@@ -62,6 +62,7 @@ const selectedDateKey = ref('');
 const anchorInfo = ref<ReturnType<typeof resolveTermAnchor> | null>(null);
 const baseOffline = ref(false);
 const timetableOffline = ref(false);
+const refreshStatus = ref('');
 
 const timetableCache = new Map<string, TimetablePayload>();
 const timetableMetaCache = new Map<string, 'network' | 'cache' | 'unknown'>();
@@ -70,6 +71,11 @@ function formatReason(reason: unknown) {
   if (!reason) return '未知错误';
   if (reason instanceof Error) return reason.message;
   return String(reason);
+}
+
+function refreshFallbackMessage(meta?: { requestedFresh?: boolean; source?: string; fallbackReason?: string }) {
+  if (!meta?.requestedFresh || meta.source !== 'cache') return '';
+  return `已尝试强制刷新，但网络失败，当前回退到本地缓存${meta.fallbackReason ? `：${meta.fallbackReason}` : ''}。`;
 }
 
 function parseDateTime(value: unknown): Date | null {
@@ -176,7 +182,7 @@ function rebuildFromPayload(resetWeek = false) {
   ensureSelectedDate();
 }
 
-async function loadActiveTerm(resetWeek = false) {
+async function loadActiveTerm(resetWeek = false, forceRefresh = false) {
   const term = termTabs.value.find((item) => item.name === activeTermName.value);
   if (!term) {
     activePayload.value = null;
@@ -185,16 +191,21 @@ async function loadActiveTerm(resetWeek = false) {
 
   isLoadingTerm.value = true;
   errorMsg.value = '';
+  if (forceRefresh) {
+    timetableCache.delete(term.name);
+    timetableMetaCache.delete(term.name);
+  }
 
   try {
-    if (timetableCache.has(term.name)) {
+    if (!forceRefresh && timetableCache.has(term.name)) {
       activePayload.value = timetableCache.get(term.name) || null;
       timetableOffline.value = (timetableMetaCache.get(term.name) || 'unknown') === 'cache';
       rebuildFromPayload(resetWeek);
       return true;
     }
 
-    const env = await fetchTimetable({ year: term.year, semester: term.timetableSemester });
+    const env = await fetchTimetable({ year: term.year, semester: term.timetableSemester, forceRefresh });
+    refreshStatus.value = refreshFallbackMessage(env._meta as any) || refreshStatus.value;
     timetableCache.set(term.name, env.data);
     timetableMetaCache.set(term.name, env._meta?.source || 'unknown');
     timetableOffline.value = env._meta?.source === 'cache';
@@ -211,10 +222,11 @@ async function loadActiveTerm(resetWeek = false) {
   }
 }
 
-async function loadCalendar() {
+async function loadCalendar(forceRefresh = false) {
   isLoading.value = true;
   errorMsg.value = '';
   warningMsg.value = '';
+  refreshStatus.value = '';
   scholarPayload.value = null;
   todoList.value = [];
   termTabs.value = [];
@@ -226,12 +238,16 @@ async function loadCalendar() {
   timetableOffline.value = false;
 
   const currentTerm = resolveCurrentTimetableTerm(new Date());
-  const [scholarResult, todoResult] = await Promise.allSettled([fetchScholarData(), fetchTodos()]);
+  const [scholarResult, todoResult] = await Promise.allSettled([
+    fetchScholarData({ forceRefresh }),
+    fetchTodos({ forceRefresh }),
+  ]);
   const warnings: string[] = [];
 
   if (scholarResult.status === 'fulfilled') {
     scholarPayload.value = scholarResult.value.data;
     baseOffline.value = baseOffline.value || scholarResult.value._meta?.source === 'cache';
+    refreshStatus.value = refreshFallbackMessage(scholarResult.value._meta as any) || refreshStatus.value;
   } else {
     warnings.push(`成绩/考试 ${formatReason(scholarResult.reason)}`);
   }
@@ -239,6 +255,7 @@ async function loadCalendar() {
   if (todoResult.status === 'fulfilled') {
     todoList.value = todoResult.value.data.todo_list || [];
     baseOffline.value = baseOffline.value || todoResult.value._meta?.source === 'cache';
+    refreshStatus.value = refreshFallbackMessage(todoResult.value._meta as any) || refreshStatus.value;
   } else {
     warnings.push(`任务 ${formatReason(todoResult.reason)}`);
   }
@@ -248,7 +265,7 @@ async function loadCalendar() {
     ? currentTerm.name
     : termTabs.value[0]?.name || currentTerm.name;
 
-  const loaded = await loadActiveTerm(true);
+  const loaded = await loadActiveTerm(true, forceRefresh);
   warningMsg.value = warnings.join('；');
 
   if (!loaded && warnings.length > 0) {
@@ -262,6 +279,10 @@ async function activateTerm(name: string) {
   if (name === activeTermName.value) return;
   activeTermName.value = name;
   await loadActiveTerm(true);
+}
+
+async function forceRefreshCalendar() {
+  await loadCalendar(true);
 }
 
 function changeWeek(offset: number) {
@@ -387,6 +408,23 @@ const weekDays = computed(() => {
   });
 });
 
+const periodRows = computed(() => {
+  const maxPeriod = Math.max(11, ...weekDays.value.flatMap((day) => day.courses.map((course) => course.session.endPeriod)));
+  return Array.from({ length: maxPeriod }, (_, index) => index + 1);
+});
+
+function matrixCourseAt(dateKey: string, period: number) {
+  const day = weekDays.value.find((item) => item.dateKey === dateKey);
+  if (!day) return null;
+  return day.courses.find((course) => course.session.startPeriod === period) || null;
+}
+
+function matrixCovered(dateKey: string, period: number) {
+  const day = weekDays.value.find((item) => item.dateKey === dateKey);
+  if (!day) return false;
+  return day.courses.some((course) => course.session.startPeriod < period && course.session.endPeriod >= period);
+}
+
 const selectedDay = computed(() => weekDays.value.find((item) => item.dateKey === selectedDateKey.value) || weekDays.value[0] || null);
 const selectedDayCourseCount = computed(() => selectedDay.value?.courses.length || 0);
 const selectedDayItemsCount = computed(() => (selectedDay.value?.courses.length || 0) + (selectedDay.value?.todos.length || 0) + (selectedDay.value?.exams.length || 0));
@@ -428,13 +466,19 @@ onMounted(() => {
     <header class="page-header">
       <div>
         <h1>日程</h1>
-        <p class="page-subtitle">课表学期以当前课表真值优先，再合并成绩学期，不再反推错位。</p>
+        <p class="page-subtitle">保留列表模式，同时补回一周七天按节次展开的周日历模式。</p>
       </div>
-      <span class="badge" :class="isOffline ? 'warning' : 'accent'">{{ isOffline ? '缓存模式' : '实时数据' }}</span>
+      <div class="calendar-header-actions">
+        <ActionPill tone="accent" :disabled="isLoading || isLoadingTerm" @click="forceRefreshCalendar">强制刷新</ActionPill>
+        <span class="badge" :class="isOffline ? 'warning' : 'accent'">{{ isOffline ? '缓存模式' : '实时数据' }}</span>
+      </div>
     </header>
 
     <StatusBanner v-if="errorMsg" tone="danger" title="课表异常">
       {{ errorMsg }}
+    </StatusBanner>
+    <StatusBanner v-else-if="refreshStatus" tone="warning" title="强制刷新回退">
+      {{ refreshStatus }}
     </StatusBanner>
     <StatusBanner v-else-if="warningMsg" tone="warning" title="部分数据未完成">
       {{ warningMsg }}
@@ -481,7 +525,7 @@ onMounted(() => {
       </SectionCard>
 
       <div v-else-if="activePayload" class="calendar-layout">
-        <SectionCard title="本周课表" :subtitle="`${activePayload.displayName} · ${weekRangeLabel}`">
+        <SectionCard title="列表模式" :subtitle="`${activePayload.displayName} · ${weekRangeLabel}`">
           <div class="week-grid">
             <article
               v-for="day in weekDays"
@@ -518,6 +562,43 @@ onMounted(() => {
               </div>
               <div v-else class="day-empty">今日无课</div>
             </article>
+          </div>
+        </SectionCard>
+
+        <SectionCard class="calendar-matrix-card" title="周日历模式" subtitle="保留原来的七天 x 节次矩阵，课程卡片可点击联动右侧当天详情。" dense>
+          <div class="timetable-matrix">
+            <div class="timetable-matrix__head period">节次</div>
+            <div
+              v-for="day in weekDays"
+              :key="`head-${day.dateKey}`"
+              class="timetable-matrix__head"
+              :class="{ today: day.isToday, selected: day.isSelected }"
+              @click="selectedDateKey = day.dateKey"
+            >
+              <strong>{{ day.label }}</strong>
+              <small>{{ formatDayLabel(day.date) }}</small>
+            </div>
+            <template v-for="period in periodRows" :key="`period-${period}`">
+              <div class="timetable-matrix__period">第{{ period }}节</div>
+              <div
+                v-for="day in weekDays"
+                :key="`${day.dateKey}-${period}`"
+                class="timetable-matrix__cell"
+                :class="{ selected: day.isSelected }"
+              >
+                <button
+                  v-if="matrixCourseAt(day.dateKey, period)"
+                  type="button"
+                  class="matrix-course-card"
+                  :style="{ '--course-accent': courseTone(matrixCourseAt(day.dateKey, period)?.session.xkkh || matrixCourseAt(day.dateKey, period)?.session.courseName || '') }"
+                  @click="selectedDateKey = day.dateKey"
+                >
+                  <strong>{{ matrixCourseAt(day.dateKey, period)?.session.courseName }}</strong>
+                  <small>{{ matrixCourseAt(day.dateKey, period)?.startSlot?.start || '--:--' }} - {{ matrixCourseAt(day.dateKey, period)?.endSlot?.end || '--:--' }}</small>
+                </button>
+                <div v-else-if="matrixCovered(day.dateKey, period)" class="matrix-course-card matrix-course-card--ghost"></div>
+              </div>
+            </template>
           </div>
         </SectionCard>
 
@@ -570,6 +651,13 @@ onMounted(() => {
 <style scoped>
 .calendar-view {
   gap: 1rem;
+}
+
+.calendar-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .calendar-toolbar,
@@ -631,9 +719,13 @@ onMounted(() => {
 
 .calendar-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr);
   gap: 1rem;
   align-items: start;
+}
+
+.calendar-matrix-card {
+  grid-column: 1 / -1;
 }
 
 .week-grid {
@@ -732,9 +824,18 @@ onMounted(() => {
   .week-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+
+  .timetable-matrix {
+    grid-template-columns: 84px repeat(7, minmax(110px, 1fr));
+    overflow-x: auto;
+  }
 }
 
 @media (max-width: 1100px) {
+  .timetable-matrix {
+    grid-template-columns: 84px repeat(7, minmax(110px, 1fr));
+    overflow-x: auto;
+  }
   .calendar-layout {
     grid-template-columns: 1fr;
   }
