@@ -126,6 +126,7 @@ fn now_ts() -> u64 {
 #[derive(Clone, Copy, Debug)]
 struct MaterialSyncWindow {
     term_start_ts: u64,
+    term_end_ts: u64,
     week_start_ts: u64,
     week_end_ts: u64,
 }
@@ -135,6 +136,39 @@ fn midnight_ts(date: NaiveDate) -> u64 {
         .and_then(|value| Local.from_local_datetime(&value).single())
         .map(|value| value.timestamp().max(0) as u64)
         .unwrap_or_default()
+}
+
+fn parse_date_only(value: &str) -> Option<NaiveDate> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    NaiveDate::parse_from_str(trimmed.get(..10).unwrap_or(trimmed), "%Y-%m-%d").ok()
+}
+
+fn derive_term_end_from_courses(courses: &[Value], fallback_start: NaiveDate) -> NaiveDate {
+    let course_end = courses
+        .iter()
+        .filter_map(|course| {
+            course
+                .get("end_date")
+                .and_then(Value::as_str)
+                .and_then(parse_date_only)
+        })
+        .max();
+    let course_start = courses
+        .iter()
+        .filter_map(|course| {
+            course
+                .get("start_date")
+                .and_then(Value::as_str)
+                .and_then(parse_date_only)
+        })
+        .min();
+
+    course_end
+        .or_else(|| course_start.map(|date| date + Duration::days(140)))
+        .unwrap_or_else(|| fallback_start + Duration::days(140))
 }
 
 fn monday_of(date: NaiveDate) -> NaiveDate {
@@ -175,23 +209,25 @@ fn fallback_term_start(term: &term::TermDescriptor) -> NaiveDate {
     monday_of(base)
 }
 
-async fn resolve_material_sync_window(app: &AppHandle) -> MaterialSyncWindow {
+async fn resolve_material_sync_window(app: &AppHandle, courses: &[Value]) -> MaterialSyncWindow {
     let today = Local::now().date_naive();
     let current_term = current_term_descriptor(today);
     let config = term::load_term_time_config(app, &current_term).await;
     let term_start = config
         .start_date
         .as_deref()
-        .and_then(|value| {
-            NaiveDate::parse_from_str(value.get(..10).unwrap_or(value), "%Y-%m-%d").ok()
-        })
+        .and_then(parse_date_only)
         .map(monday_of)
         .unwrap_or_else(|| fallback_term_start(&current_term));
+    let derived_term_end = derive_term_end_from_courses(courses, term_start);
+    let buffered_term_start = term_start.checked_sub_signed(Duration::days(14)).unwrap_or(term_start);
+    let buffered_term_end = derived_term_end + Duration::days(21);
     let week_start = monday_of(today);
     let week_end = week_start + Duration::days(7);
 
     MaterialSyncWindow {
-        term_start_ts: midnight_ts(term_start.checked_sub_signed(Duration::days(14)).unwrap_or(term_start)),
+        term_start_ts: midnight_ts(buffered_term_start),
+        term_end_ts: midnight_ts(buffered_term_end),
         week_start_ts: midnight_ts(week_start),
         week_end_ts: midnight_ts(week_end),
     }
@@ -611,7 +647,7 @@ fn normalize_learning_upload(
     .iter()
     .find_map(|key| upload.get(*key).and_then(parse_timestamp_value))
     .unwrap_or_else(now_ts);
-    if updated_at < window.term_start_ts {
+    if updated_at < window.term_start_ts || updated_at > window.term_end_ts {
         return None;
     }
     let week_bucket = if updated_at >= window.week_start_ts && updated_at < window.week_end_ts {
@@ -672,7 +708,7 @@ fn normalize_classroom_subject(
         let Some(ts) = dated_updated_at else {
             return None;
         };
-        if ts < window.term_start_ts {
+        if ts < window.term_start_ts || ts > window.term_end_ts {
             return None;
         }
     }
@@ -914,8 +950,8 @@ pub fn fetch_materials(app: &AppHandle) -> Result<Value, String> {
 pub async fn sync_materials_index(app: &AppHandle, state: &AppState) -> Result<Value, String> {
     let root = materials_root(app)?;
     let local_items = read_materials(&root)?;
-    let window = resolve_material_sync_window(app).await;
     let courses = courses::get_learning_courses(state).await?;
+    let window = resolve_material_sync_window(app, &courses).await;
     let mut warnings = Vec::<String>::new();
     let mut remote_items = Vec::<RemoteMaterialAsset>::new();
     let mut seen_learning = HashSet::<(i64, i64)>::new();
@@ -1343,6 +1379,7 @@ fn normalize_classroom_subject_discards_pre_term_unknown_items() {
     };
     let window = MaterialSyncWindow {
         term_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 2, 10).unwrap()),
+        term_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 7, 20).unwrap()),
         week_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 2).unwrap()),
         week_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()),
     };
@@ -1363,6 +1400,7 @@ fn normalize_classroom_subject_marks_current_term_items_as_other() {
     };
     let window = MaterialSyncWindow {
         term_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 2, 10).unwrap()),
+        term_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 7, 20).unwrap()),
         week_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 2).unwrap()),
         week_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()),
     };
@@ -1376,6 +1414,46 @@ fn normalize_classroom_subject_marks_current_term_items_as_other() {
 
     assert_eq!(item.week_bucket, "other");
     assert_eq!(item.updated_at, midnight_ts(NaiveDate::from_ymd_opt(2026, 2, 24).unwrap()));
+}
+
+
+#[test]
+fn normalize_learning_upload_discards_post_term_items() {
+    let upload = json!({
+        "id": 1,
+        "reference_id": 2,
+        "name": "future.pdf",
+        "updated_at": "2026-09-01T08:00:00+08:00"
+    });
+    let window = MaterialSyncWindow {
+        term_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 2, 10).unwrap()),
+        term_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 7, 20).unwrap()),
+        week_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 2).unwrap()),
+        week_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()),
+    };
+
+    assert!(normalize_learning_upload(1, "高等数学", "activity", &upload, &window).is_none());
+}
+
+#[test]
+fn normalize_classroom_subject_discards_post_term_unknown_items() {
+    let subject = ClassroomSubject {
+        course_id: 1,
+        sub_id: 2,
+        course_name: "编译原理".to_string(),
+        sub_name: "2026-09-03第1-2节".to_string(),
+        lecturer_name: "教师".to_string(),
+        ppt_image_urls: vec!["https://example.com/1.png".to_string()],
+        week_bucket: "unknown".to_string(),
+    };
+    let window = MaterialSyncWindow {
+        term_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 2, 10).unwrap()),
+        term_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 7, 20).unwrap()),
+        week_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 2).unwrap()),
+        week_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()),
+    };
+
+    assert!(normalize_classroom_subject(subject, &window, midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 7).unwrap())).is_none());
 }
 
 }

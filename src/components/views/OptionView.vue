@@ -349,7 +349,7 @@ function deleteAccount(id: string) {
             <div class="setting-info setting-info-start setting-info-spread">
               <div class="setting-text setting-text-full">
                 <span class="setting-name">资料来源说明</span>
-                <span class="setting-desc">资料页默认会自动刷新，并按“智云课堂本周优先 + 当前学期课程活动/作业附件”收口；只有切到“全部个人”时，才会展开当前账号已同步过的个人资料。</span>
+                <span class="setting-desc">资料页默认会自动刷新，并按“智云课堂本周优先 + 当前学期课程活动/作业附件”收口；当前学期窗口会同时参考学期配置与课程 start/end date，只有切到“全部个人”时才会展开当前账号已同步过的个人资料。</span>
               </div>
             </div>
           </div>
@@ -357,7 +357,7 @@ function deleteAccount(id: string) {
             <div class="setting-info setting-info-start setting-info-spread">
               <div class="setting-text setting-text-full">
                 <span class="setting-name">同步行为</span>
-                <span class="setting-desc">进入资料页时会在数据为空、缺少智云课堂结果或缓存超过 6 小时时自动刷新。手动按钮仍保留为兜底，不再是唯一同步入口。</span>
+                <span class="setting-desc">进入资料页时会在数据为空、缺少智云课堂结果或缓存超过 6 小时时自动刷新；自动同步会优先拉本周智云，再补当前学期窗口内的课程活动/作业附件，手动按钮只保留为兜底。</span>
               </div>
             </div>
           </div>

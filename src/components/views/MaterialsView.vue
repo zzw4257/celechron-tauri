@@ -597,7 +597,7 @@ onMounted(() => {
 
       <SectionCard dense title="筛选与范围" subtitle="减少一股脑堆叠，先看本周、再按课程收束。">
         <div class="filters-layout">
-          <span class="helper-text filters-note">智云课堂优先按本周入场；课程活动与作业附件默认只保留当前学期窗口；“全部个人” 也只代表当前账号自己的同步资料，不是平台公共全量。</span>
+          <span class="helper-text filters-note">智云课堂优先按本周入场；课程活动与作业附件会按当前学期窗口过滤，窗口同时参考学期配置和课程 start/end date；“全部个人” 也只代表当前账号自己的同步资料，不是平台公共全量。</span>
           <SegmentedFilter v-model="selectedScope" :options="[
             { value: 'current-week', label: weekLabel ? `本周 ${weekLabel}` : '本周' },
             { value: 'current-term', label: '本学期' },
