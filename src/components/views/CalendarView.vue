@@ -1163,8 +1163,9 @@ onMounted(() => {
 }
 
 .timetable-board__time strong {
-  font-size: 1.15rem;
+  font-size: 1.08rem;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .timetable-board__time span {
@@ -1187,7 +1188,8 @@ onMounted(() => {
 
 .timetable-board__day strong {
   color: var(--text-primary);
-  font-size: 1.02rem;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
 }
 
 .timetable-board__day span,
@@ -1260,6 +1262,16 @@ onMounted(() => {
   overflow: hidden;
 }
 
+.timetable-course-block__title {
+  font-size: 0.98rem;
+  line-height: 1.32;
+}
+
+.week-list-course__title {
+  font-size: 0.96rem;
+  line-height: 1.3;
+}
+
 .timetable-course-block small,
 .timetable-course-block__period {
   color: var(--course-muted, var(--text-secondary));
@@ -1280,14 +1292,14 @@ onMounted(() => {
 .week-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 0.8rem;
+  gap: 0.72rem;
 }
 
 .week-list-day {
   border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
   border-radius: var(--radius-card-sm);
   background: linear-gradient(165deg, color-mix(in srgb, var(--accent-text) 7%, var(--surface-1)) 0%, var(--surface-2) 100%);
-  padding: 0.95rem;
+  padding: 0.9rem;
   box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
@@ -1311,7 +1323,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.65rem;
   cursor: pointer;
 }
 
@@ -1347,20 +1359,20 @@ onMounted(() => {
 .week-list-day__courses {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.55rem;
 }
 
 .week-list-course {
   border: 1px solid var(--course-border, color-mix(in srgb, var(--course-accent, var(--accent-text)) 28%, var(--border-subtle)));
   border-radius: var(--radius-card-sm);
   background: linear-gradient(160deg, var(--course-surface-strong, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1))) 0%, var(--course-surface, var(--surface-1)) 100%);
-  padding: 0.8rem 0.9rem;
+  padding: 0.72rem 0.82rem;
   text-align: left;
-  box-shadow: 0 12px 28px var(--course-shadow, color-mix(in srgb, var(--course-accent, var(--accent-text)) 9%, transparent));
+  box-shadow: 0 10px 22px var(--course-shadow, color-mix(in srgb, var(--course-accent, var(--accent-text)) 9%, transparent));
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 0.75rem;
+  gap: 0.65rem;
   cursor: pointer;
 }
 
@@ -1370,7 +1382,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 0.9rem;
   margin-bottom: 0.95rem;
-  padding: 0.95rem 1rem;
+  padding: 0.9rem 0.95rem;
   border: 1px solid var(--border-subtle);
   border-radius: calc(var(--radius-card-sm) + 4px);
   background: linear-gradient(145deg, color-mix(in srgb, var(--accent-text) 6%, var(--surface-1)) 0%, var(--surface-1) 100%);
@@ -1588,20 +1600,44 @@ onMounted(() => {
     display: flex;
     overflow-x: auto;
     padding-bottom: 0.1rem;
-    gap: 0.6rem;
+    gap: 0.55rem;
   }
 
   .day-picker__item {
-    min-width: 108px;
+    min-width: 104px;
     flex: 0 0 auto;
   }
 
   .week-list {
     grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .week-list-day {
+    padding: 0.8rem 0.82rem;
+    gap: 0.65rem;
+  }
+
+  .week-list-day__badges {
+    gap: 0.45rem;
+  }
+
+  .week-list-day__badges .badge {
+    min-height: 1.6rem;
+    padding-inline: 0.5rem;
+    font-size: 0.74rem;
   }
 
   .week-list-course {
     flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.7rem 0.76rem;
+  }
+
+  .week-list-course__meta {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
   }
 }
 </style>
