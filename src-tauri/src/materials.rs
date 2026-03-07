@@ -67,6 +67,18 @@ pub struct CourseFilter {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+pub struct MaterialSourceSummary {
+    pub source_type: String,
+    pub label: String,
+    pub remote_count: usize,
+    pub current_count: usize,
+    pub downloaded_count: usize,
+    pub available: bool,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 struct RemoteMaterialsIndex {
     version: u32,
     items: Vec<RemoteMaterialAsset>,
@@ -814,6 +826,45 @@ fn build_course_filters(items: &[RemoteMaterialAsset]) -> Vec<CourseFilter> {
         .collect()
 }
 
+fn build_material_source_summaries(
+    items: &[RemoteMaterialAsset],
+    warnings: &[String],
+) -> Vec<MaterialSourceSummary> {
+    SOURCE_PRIORITY
+        .iter()
+        .map(|source| {
+            let related: Vec<&RemoteMaterialAsset> = items
+                .iter()
+                .filter(|item| item.source_type == *source)
+                .collect();
+            let warning = warnings
+                .iter()
+                .find(|entry| match *source {
+                    "classroom" => entry.contains("智云课堂") || entry.to_ascii_lowercase().contains("classroom"),
+                    "activity" => entry.contains("活动资料") || entry.contains("课程活动"),
+                    "homework" => entry.contains("作业资料") || entry.contains("作业附件"),
+                    _ => false,
+                })
+                .cloned();
+            MaterialSourceSummary {
+                source_type: (*source).to_string(),
+                label: match *source {
+                    "classroom" => "智云课堂",
+                    "activity" => "课程活动",
+                    "homework" => "作业附件",
+                    _ => source,
+                }
+                .to_string(),
+                remote_count: related.len(),
+                current_count: related.iter().filter(|item| item.week_bucket == "current").count(),
+                downloaded_count: related.iter().filter(|item| item.downloaded).count(),
+                available: !related.is_empty(),
+                warning,
+            }
+        })
+        .collect()
+}
+
 fn build_materials_payload(items: Vec<MaterialAsset>, mut index: RemoteMaterialsIndex) -> Value {
     index.version = REMOTE_INDEX_VERSION;
     index.items = attach_download_status(index.items, &items);
@@ -826,11 +877,13 @@ fn build_materials_payload(items: Vec<MaterialAsset>, mut index: RemoteMaterials
     };
     let available_remote_count = index.items.iter().filter(|item| !item.downloaded).count();
     let course_filters = build_course_filters(&index.items);
+    let source_summaries = build_material_source_summaries(&index.items, &index.warnings);
     json!({
         "defaultScope": default_scope,
         "weekLabel": index.week_label,
         "courseFilters": course_filters,
         "sourcePriority": SOURCE_PRIORITY,
+        "sourceSummaries": source_summaries,
         "items": items,
         "remoteItems": index.items,
         "lastSyncedAt": index.last_synced_at,

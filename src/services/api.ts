@@ -78,6 +78,7 @@ function normalizeMaterialsPayload(env: ApiEnvelope<MaterialsPayload>) {
   env.data.defaultScope = env.data?.defaultScope === 'all' ? 'all' : env.data?.defaultScope === 'current-term' ? 'current-term' : 'current-week';
   env.data.courseFilters = Array.isArray(env.data?.courseFilters) ? env.data.courseFilters : [];
   env.data.sourcePriority = Array.isArray(env.data?.sourcePriority) ? env.data.sourcePriority : ['classroom', 'activity', 'homework'];
+  env.data.sourceSummaries = Array.isArray(env.data?.sourceSummaries) ? env.data.sourceSummaries : [];
   env.data.items = Array.isArray(env.data?.items) ? env.data.items : [];
   env.data.remoteItems = Array.isArray(env.data?.remoteItems) ? env.data.remoteItems : [];
   env.data.warnings = Array.isArray(env.data?.warnings) ? env.data.warnings : [];

@@ -72,13 +72,28 @@ fn extract_token(jar: &Jar) -> Result<String, String> {
     let cookies = jar
         .cookies(&classroom_url)
         .ok_or_else(|| "Classroom cookie 缺失，请重新登录".to_string())?;
-    let cookie_text = percent_decode_str(cookies.to_str().map_err(|error| error.to_string())?)
+    let raw_cookie_text = cookies.to_str().map_err(|error| error.to_string())?.to_string();
+    let cookie_text = percent_decode_str(&raw_cookie_text)
         .decode_utf8_lossy()
         .to_string();
+
+    for source in [&raw_cookie_text, &cookie_text] {
+        for segment in source.split(';') {
+            let trimmed = segment.trim();
+            if let Some(value) = trimmed.strip_prefix("_token=") {
+                let token = value.trim().trim_matches('"').to_string();
+                if !token.is_empty() {
+                    return Ok(token);
+                }
+            }
+        }
+    }
+
     let re = Regex::new(r#"\{i:\d+;s:\d+:"_token";i:\d+;s:\d+:"(.+?)";\}"#)
         .map_err(|error| format!("Classroom token 正则构建失败: {error}"))?;
     re.captures(&cookie_text)
         .and_then(|caps| caps.get(1).map(|item| item.as_str().to_string()))
+        .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "Classroom token 缺失，请重新登录".to_string())
 }
 

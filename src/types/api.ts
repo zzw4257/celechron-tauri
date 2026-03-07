@@ -160,6 +160,16 @@ export interface CourseFilter {
   count: number;
 }
 
+export interface MaterialSourceSummary {
+  sourceType: MaterialSourceType | string;
+  label: string;
+  remoteCount: number;
+  currentCount: number;
+  downloadedCount: number;
+  available: boolean;
+  warning?: string | null;
+}
+
 export interface RemoteMaterialAsset {
   id: string;
   courseId: number;
@@ -183,6 +193,7 @@ export interface MaterialsPayload {
   weekLabel?: string | null;
   courseFilters: CourseFilter[];
   sourcePriority: string[];
+  sourceSummaries?: MaterialSourceSummary[];
   items: MaterialAsset[];
   remoteItems: RemoteMaterialAsset[];
   lastSyncedAt?: number | null;

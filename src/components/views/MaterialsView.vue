@@ -6,7 +6,7 @@ import InlineStat from '../ui/InlineStat.vue';
 import SectionCard from '../ui/SectionCard.vue';
 import SegmentedFilter from '../ui/SegmentedFilter.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
-import type { MaterialAsset, MaterialsPayload, RemoteMaterialAsset } from '../../types/api';
+import type { MaterialAsset, MaterialsPayload, MaterialSourceSummary, RemoteMaterialAsset } from '../../types/api';
 import {
   cacheRemoteMaterial,
   downloadMaterialAsset,
@@ -41,6 +41,7 @@ const lastSyncedAt = ref<number | null>(null);
 const weekLabel = ref('');
 const defaultScope = ref<'current-week' | 'current-term' | 'all'>('current-week');
 const sourcePriority = ref<string[]>(['classroom', 'activity', 'homework']);
+const sourceSummaries = ref<MaterialSourceSummary[]>([]);
 const courseFilters = ref<{ id: string; label: string; count: number }[]>([]);
 const selectedScope = ref<'current-week' | 'current-term' | 'all'>('current-week');
 const selectedSource = ref('all');
@@ -122,6 +123,7 @@ function hydrate(payload: MaterialsPayload, resetFilters = false) {
   sourcePriority.value = Array.isArray(payload.sourcePriority) && payload.sourcePriority.length
     ? payload.sourcePriority
     : ['classroom', 'activity', 'homework'];
+  sourceSummaries.value = Array.isArray(payload.sourceSummaries) ? payload.sourceSummaries : [];
   courseFilters.value = Array.isArray(payload.courseFilters) ? payload.courseFilters : [];
 
   const availableSources = new Set(remoteItems.value.map((item) => item.sourceType));
@@ -154,6 +156,8 @@ function hydrate(payload: MaterialsPayload, resetFilters = false) {
       : (remoteItems.value.length === 0 ? items.value[0]?.relativePath || '' : '');
   }
 }
+
+const sourceSummaryMap = computed(() => new Map(sourceSummaries.value.map((item) => [item.sourceType, item])));
 
 const sourceOptions = computed(() => {
   const counts = new Map<string, number>();
@@ -635,6 +639,7 @@ onMounted(() => {
                       <span class="badge accent">{{ section.entries.length }} 项</span>
                     </div>
                     <p>{{ section.sourceDescription }}</p>
+                    <small v-if="sourceSummaryMap.get(section.sourceType)?.warning" class="source-group__warning">{{ sourceSummaryMap.get(section.sourceType)?.warning }}</small>
                   </div>
                   <div class="source-group__stats">
                     <span class="badge" :class="section.currentCount ? 'success' : ''">{{ section.currentCount }} 本周</span>
@@ -891,6 +896,12 @@ onMounted(() => {
   gap: 0.45rem;
 }
 
+.source-group__warning {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--warning-text);
+}
+
 .course-group__header h3 {
   margin: 0;
   font-size: 0.98rem;
@@ -900,7 +911,8 @@ onMounted(() => {
 .course-group__header p,
 .remote-row__select p,
 .local-row__select p,
-.helper-text {
+.helper-text,
+.source-group__warning {
   margin: 0.2rem 0 0;
   color: var(--text-secondary);
 }
