@@ -459,6 +459,17 @@ const weekCourseCount = computed(() => weekDays.value.reduce((sum, item) => sum 
 const weekPeriodCount = computed(() => weekDays.value.reduce((sum, item) => sum + item.courses.reduce((courseSum, course) => courseSum + (course.session.endPeriod - course.session.startPeriod + 1), 0), 0));
 const weekTodoCount = computed(() => weekDays.value.reduce((sum, item) => sum + item.todos.length, 0));
 const weekExamCount = computed(() => weekDays.value.reduce((sum, item) => sum + item.exams.length, 0));
+const visibleMonthLabel = computed(() => {
+  if (!weekMonday.value) return '未加载';
+  const sunday = addDays(weekMonday.value, 6);
+  if (weekMonday.value.getFullYear() === sunday.getFullYear() && weekMonday.value.getMonth() === sunday.getMonth()) {
+    return `${weekMonday.value.getFullYear()} 年 ${weekMonday.value.getMonth() + 1} 月`;
+  }
+  if (weekMonday.value.getFullYear() === sunday.getFullYear()) {
+    return `${weekMonday.value.getFullYear()} 年 ${weekMonday.value.getMonth() + 1} 月 - ${sunday.getMonth() + 1} 月`;
+  }
+  return `${weekMonday.value.getFullYear()} 年 ${weekMonday.value.getMonth() + 1} 月 - ${sunday.getFullYear()} 年 ${sunday.getMonth() + 1} 月`;
+});
 const selectedDayLabel = computed(() => {
   if (!selectedDay.value) return '未选择日期';
   return `${formatDayLabel(selectedDay.value.date)} ${selectedDay.value.label}`;
@@ -466,6 +477,55 @@ const selectedDayLabel = computed(() => {
 const selectedDaySubtitle = computed(() => {
   if (!selectedDay.value) return '未选择日期';
   return `课程 ${selectedDay.value.courses.length} 项 · 任务 ${selectedDay.value.todos.length} 项 · 考试 ${selectedDay.value.exams.length} 项`;
+});
+const selectedDaySummaryCards = computed(() => {
+  if (!selectedDay.value) return [];
+  return [
+    { label: '课程', value: `${selectedDay.value.courses.length}`, hint: selectedDay.value.courses.length ? '含上课节次与地点' : '今天暂无课程' },
+    { label: '任务', value: `${selectedDay.value.todos.length}`, hint: selectedDay.value.todos.length ? '按截止时间提醒' : '今天暂无任务' },
+    { label: '考试', value: `${selectedDay.value.exams.length}`, hint: selectedDay.value.exams.length ? '按考试时间提醒' : '今天暂无考试' },
+  ];
+});
+const selectedDayTimeline = computed(() => {
+  if (!selectedDay.value) return [];
+
+  const courseItems = selectedDay.value.courses.map((course) => ({
+    id: `course-${course.id}`,
+    type: 'course' as const,
+    sortTime: course.startDateTime?.getTime() ?? course.date.getTime(),
+    badge: '课程',
+    title: course.session.courseName,
+    meta: `${course.session.location || '地点待定'}${course.session.teacher ? ` · ${course.session.teacher}` : ''}`,
+    note: `第${course.session.startPeriod}-${course.session.endPeriod}节`,
+    timeLabel: `${course.startSlot?.start || '--:--'} - ${course.endSlot?.end || '--:--'}`,
+    tone: courseTone(course.session.xkkh || course.session.courseName),
+  }));
+
+  const todoItems = selectedDay.value.todos.map((item) => ({
+    id: `todo-${item.id}`,
+    type: 'todo' as const,
+    sortTime: item.date.getTime(),
+    badge: '任务',
+    title: item.title,
+    meta: item.courseName,
+    note: item.status || 'pending',
+    timeLabel: formatDateTimeLabel(item.date),
+    tone: 'var(--danger-text)',
+  }));
+
+  const examItems = selectedDay.value.exams.map((item) => ({
+    id: `exam-${item.id}`,
+    type: 'exam' as const,
+    sortTime: item.date.getTime(),
+    badge: '考试',
+    title: item.title,
+    meta: item.location,
+    note: '考试安排',
+    timeLabel: item.timeLabel,
+    tone: 'var(--warning-text)',
+  }));
+
+  return [...courseItems, ...todoItems, ...examItems].sort((left, right) => left.sortTime - right.sortTime || left.title.localeCompare(right.title));
 });
 const anchorLabel = computed(() => {
   if (!anchorInfo.value) return '未加载';
@@ -544,7 +604,10 @@ onMounted(() => {
                 <ChevronLeft :size="18" />
               </button>
               <div class="week-hero">
-                <span class="week-hero__eyebrow">{{ activePayload?.displayName || activeTerm?.displayName || '当前学期' }}</span>
+                <div class="week-hero__meta">
+                  <span class="week-hero__eyebrow">{{ visibleMonthLabel }}</span>
+                  <span class="week-hero__term">{{ activePayload?.displayName || activeTerm?.displayName || '当前学期' }}</span>
+                </div>
                 <strong>第 {{ currentWeek }} / {{ totalWeeks }} 周</strong>
                 <p>{{ weekRangeLabel }}</p>
               </div>
@@ -722,40 +785,36 @@ onMounted(() => {
             </button>
           </div>
 
+          <div class="detail-summary-grid">
+            <article v-for="item in selectedDaySummaryCards" :key="item.label" class="detail-summary-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.hint }}</small>
+            </article>
+          </div>
+
           <div v-if="!selectedDayItemsCount" class="state-card">这一天没有课程、任务或考试安排。</div>
 
-          <div v-else class="agenda-groups">
-            <div v-if="selectedDay?.exams.length" class="agenda-group">
-              <h3>考试</h3>
-              <article v-for="item in selectedDay.exams" :key="item.id" class="agenda-item warning">
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.location }}</p>
-                <small>{{ item.timeLabel }}</small>
-              </article>
-            </div>
-
-            <div v-if="selectedDay?.todos.length" class="agenda-group">
-              <h3>任务</h3>
-              <article v-for="item in selectedDay.todos" :key="item.id" class="agenda-item danger">
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.courseName }}</p>
-                <small>{{ formatDateTimeLabel(item.date) }}</small>
-              </article>
-            </div>
-
-            <div v-if="selectedDay?.courses.length" class="agenda-group">
-              <h3>课程</h3>
-              <article
-                v-for="course in selectedDay.courses"
-                :key="course.id"
-                class="agenda-item course"
-                :style="{ '--course-accent': courseTone(course.session.xkkh || course.session.courseName) }"
-              >
-                <strong>{{ course.session.courseName }}</strong>
-                <p>{{ course.session.location || '地点待定' }}<span v-if="course.session.teacher"> · {{ course.session.teacher }}</span></p>
-                <small>{{ course.startSlot?.start || '--:--' }} - {{ course.endSlot?.end || '--:--' }} · 第{{ course.session.startPeriod }}-{{ course.session.endPeriod }}节</small>
-              </article>
-            </div>
+          <div v-else class="detail-timeline">
+            <article
+              v-for="item in selectedDayTimeline"
+              :key="item.id"
+              class="timeline-item"
+              :class="item.type"
+              :style="{ '--timeline-accent': item.tone }"
+            >
+              <div class="timeline-item__time">
+                <span>{{ item.badge }}</span>
+                <strong>{{ item.timeLabel }}</strong>
+              </div>
+              <div class="timeline-item__content">
+                <div class="timeline-item__head">
+                  <strong>{{ item.title }}</strong>
+                  <span class="badge" :class="item.type === 'course' ? 'accent' : item.type === 'todo' ? 'danger' : 'warning'">{{ item.note }}</span>
+                </div>
+                <p>{{ item.meta }}</p>
+              </div>
+            </article>
           </div>
         </SectionCard>
       </div>
@@ -842,10 +901,29 @@ onMounted(() => {
   gap: 0.3rem;
 }
 
+.week-hero__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .week-hero__eyebrow {
   color: var(--text-secondary);
   font-size: 0.88rem;
   letter-spacing: 0.04em;
+}
+
+.week-hero__term {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.85rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-text) 10%, var(--surface-1));
+  color: var(--text-primary);
+  font-size: 0.84rem;
 }
 
 .week-hero strong {
@@ -1140,8 +1218,9 @@ onMounted(() => {
 .week-list-day__head strong,
 .week-list-course strong,
 .day-picker__item strong,
-.agenda-group h3,
-.agenda-item strong {
+.detail-summary-card strong,
+.timeline-item__head strong,
+.timeline-item__time strong {
   color: var(--text-primary);
 }
 
@@ -1149,32 +1228,28 @@ onMounted(() => {
 .week-list-course p,
 .week-list-course small,
 .day-picker__item span,
-.agenda-item p,
-.agenda-item small,
+.detail-summary-card span,
+.detail-summary-card small,
+.timeline-item__time span,
+.timeline-item__content p,
 .day-empty {
   margin: 0;
   color: var(--text-secondary);
 }
 
-.week-list-day__courses,
-.agenda-groups,
-.agenda-group {
+.week-list-day__courses {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
 }
 
-.week-list-course,
-.agenda-item {
+.week-list-course {
   border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 28%, var(--border-subtle));
   border-radius: var(--radius-card-sm);
   background: linear-gradient(160deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1)) 0%, var(--surface-1) 100%);
   padding: 0.8rem 0.9rem;
   text-align: left;
   box-shadow: 0 12px 28px color-mix(in srgb, var(--course-accent, var(--accent-text)) 9%, transparent);
-}
-
-.week-list-course {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -1192,7 +1267,7 @@ onMounted(() => {
 .day-picker__item {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card-sm);
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-1) 96%, transparent);
   padding: 0.7rem 0.55rem;
   text-align: left;
   display: flex;
@@ -1206,16 +1281,78 @@ onMounted(() => {
 }
 
 .day-picker__item.active {
-  background: var(--surface-accent);
+  background: color-mix(in srgb, var(--accent-text) 8%, var(--surface-1));
   border-color: var(--accent-border);
 }
 
-.agenda-item.warning {
-  --course-accent: var(--warning-text);
+.detail-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 0.95rem;
 }
 
-.agenda-item.danger {
-  --course-accent: var(--danger-text);
+.detail-summary-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card-sm);
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  padding: 0.8rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.detail-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.timeline-item {
+  --timeline-accent: var(--accent-text);
+  display: grid;
+  grid-template-columns: minmax(110px, 0.42fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--timeline-accent) 28%, var(--border-subtle));
+  border-radius: var(--radius-card-sm);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--timeline-accent) 8%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  padding: 0.8rem 0.85rem;
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--timeline-accent) 8%, transparent);
+}
+
+.timeline-item__time {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  padding-right: 0.75rem;
+  border-right: 1px solid color-mix(in srgb, var(--timeline-accent) 18%, var(--border-subtle));
+}
+
+.timeline-item__time span {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.timeline-item__time strong {
+  font-size: 0.98rem;
+}
+
+.timeline-item__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.timeline-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.timeline-item__content p {
+  line-height: 1.45;
 }
 
 .day-empty {
@@ -1259,8 +1396,20 @@ onMounted(() => {
     grid-template-columns: 44px minmax(0, 1fr) 44px;
   }
 
-  .calendar-command__stats {
+  .calendar-command__stats,
+  .detail-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .timeline-item {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-item__time {
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--timeline-accent) 18%, var(--border-subtle));
+    padding-right: 0;
+    padding-bottom: 0.55rem;
   }
 }
 
