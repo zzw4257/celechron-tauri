@@ -25,6 +25,7 @@ const errorMsg = ref('');
 const copiedId = ref('');
 const offlineTime = ref('');
 const refreshStatus = ref('');
+const pomodoroExpanded = ref(false);
 const buckets = ref<Record<'overdue' | 'today' | 'week' | 'later', TaskBucketItem[]>>({
   overdue: [],
   today: [],
@@ -253,8 +254,12 @@ watch(accountScope, () => {
       </SectionCard>
     </div>
 
-    <SectionCard title="节奏工具" subtitle="保留轻量番茄钟，但不抢任务首屏。" dense class="task-pomodoro-card">
-      <PomodoroWidget compact />
+    <SectionCard title="节奏工具" subtitle="默认收起，避免打断任务主视图；需要专注时再展开。" dense class="task-pomodoro-card">
+      <div class="task-tool-toggle">
+        <p>接下来和截止项优先。番茄钟只在你准备进入专注阶段时打开。</p>
+        <ActionPill @click="pomodoroExpanded = !pomodoroExpanded">{{ pomodoroExpanded ? '收起番茄钟' : '展开番茄钟' }}</ActionPill>
+      </div>
+      <PomodoroWidget v-if="pomodoroExpanded" compact />
     </SectionCard>
   </div>
 </template>
@@ -277,6 +282,19 @@ watch(accountScope, () => {
 
 .task-pomodoro-card {
   margin-top: 0.25rem;
+}
+
+.task-tool-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.task-tool-toggle p {
+  margin: 0;
+  color: var(--text-secondary);
 }
 
 .task-stats {

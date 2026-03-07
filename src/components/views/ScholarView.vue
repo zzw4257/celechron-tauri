@@ -303,6 +303,15 @@ const customGuideText = computed(() => {
   return '当前范围内没有可用于模拟的课程。';
 });
 
+const predictionStats = computed(() => [
+  { label: '预测范围', value: simulationScopeLabel.value, hint: simulationScope.value === 'recent-window' ? '最近已出分学期 + 当前在读学期' : '' },
+  { label: '优先预估', value: `${customPriorityRows.value.length} 门`, hint: '缓考 / 待录 / 在读' },
+  { label: '参考课程', value: `${customSupplementRows.value.length} 门`, hint: '已出分对照' },
+  { label: '已填写', value: `${customFilledCount.value} 门`, hint: '输入后可直接生成预测' },
+]);
+
+const predictionActionLabel = computed(() => customLoading.value ? '计算中…' : '生成当前范围预测');
+
 const comparisonRows = computed(() => {
   if (!customPreview.value) return [];
   return [
@@ -630,7 +639,7 @@ watch(accountScope, loadScholar);
         </div>
       </SectionCard>
 
-      <SectionCard v-if="customMode" title="DIY 均绩模拟" subtitle="模拟范围不再绑死当前选中的成绩学期；可在最近窗口、当前在读与所选学期之间切换。">
+      <SectionCard v-if="customMode" title="课程成绩预测器" subtitle="默认围绕“最近已出分学期 + 当前在读学期”做预测，更适合缓考、待录和本学期在读课程。">
         <div class="custom-grid">
           <div class="custom-list">
             <SegmentedFilter v-model="simulationScope" :options="[
@@ -638,15 +647,18 @@ watch(accountScope, loadScholar);
               { value: 'current-term', label: '仅本学期' },
               { value: 'selected-semester', label: '所选学期' },
             ]" />
-            <StatusBanner title="模拟重点" tone="info">{{ customGuideText }}</StatusBanner>
-            <div class="custom-scope-caption">当前范围：{{ simulationScopeLabel }}</div>
+            <div class="prediction-strip">
+              <InlineStat v-for="item in predictionStats" :key="item.label" :label="item.label" :value="item.value" :hint="item.hint" />
+            </div>
+            <StatusBanner title="预测重点" tone="info">{{ customGuideText }}</StatusBanner>
+            <div class="custom-scope-caption">上学期+本学期 = 最近已出分学期 + 当前在读学期；所选学期只用于回看历史学期做压力测试。</div>
 
-            <div v-if="customRows.length === 0" class="state-card">当前学期暂无可模拟课程。</div>
+            <div v-if="customRows.length === 0" class="state-card">当前范围暂无可预测课程。</div>
 
             <template v-else>
               <section v-if="customPriorityRows.length" class="custom-group">
                 <header class="custom-group__head">
-                  <strong>优先预估</strong>
+                  <strong>优先预测</strong>
                   <span>{{ customPriorityRows.length }} 门</span>
                 </header>
                 <label v-for="row in customPriorityRows" :key="row.id" class="custom-row">
@@ -672,7 +684,7 @@ watch(accountScope, loadScholar);
 
               <section v-if="customSupplementRows.length" class="custom-group secondary">
                 <header class="custom-group__head">
-                  <strong>补充压力测试</strong>
+                  <strong>历史对照</strong>
                   <span>{{ customSupplementRows.length }} 门已出分课程</span>
                 </header>
                 <label v-for="row in customSupplementRows" :key="row.id" class="custom-row">
@@ -700,7 +712,7 @@ watch(accountScope, loadScholar);
           <div class="custom-side">
             <div class="custom-side__actions">
               <ActionPill tone="accent" :disabled="customLoading || customRows.length === 0" @click="calculateCustomPreview">
-                {{ customLoading ? '计算中…' : '计算当前范围预估均绩' }}
+                {{ predictionActionLabel }}
               </ActionPill>
               <span class="badge accent">已填写 {{ customFilledCount }} 门</span>
             </div>
@@ -712,7 +724,7 @@ watch(accountScope, loadScholar);
                 <small>{{ hideGpa ? '****' : item.delta }}</small>
               </div>
             </div>
-            <div v-else class="state-card">先给当前范围内的待录、缓考或在读课程输入预计分，再点击计算；右侧会直接对比当前值和模拟值。</div>
+            <div v-else class="state-card">先给当前范围内的待录、缓考或在读课程输入预计分，再生成预测；右侧会直接对比当前值和预测值。</div>
 
             <div v-if="customPreview" class="comparison-list">
               <article v-for="item in comparisonRows" :key="item.label" class="comparison-row">
@@ -951,6 +963,12 @@ watch(accountScope, loadScholar);
   min-width: 14rem;
 }
 
+.prediction-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
 .custom-scope-caption {
   color: var(--text-secondary);
   font-size: 0.9rem;
@@ -1068,6 +1086,7 @@ watch(accountScope, loadScholar);
 @media (max-width: 720px) {
   .scholar-summary-grid,
   .scholar-summary-grid.secondary,
+  .prediction-strip,
   .custom-preview-grid,
   .custom-row {
     grid-template-columns: 1fr;

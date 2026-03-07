@@ -520,6 +520,23 @@ onMounted(() => {
         <InlineStat label="时间基准" :value="anchorLabel" :hint="anchorInfo?.key || '未加载'" />
       </div>
 
+      <SectionCard v-if="!isLoadingTerm && activePayload" dense title="周组合视图" subtitle="列表模式、周日历模式和当天详情共享同一个焦点日期。">
+        <div class="focus-strip">
+          <button
+            v-for="day in weekDays"
+            :key="`focus-${day.dateKey}`"
+            type="button"
+            class="focus-pill"
+            :class="{ active: day.isSelected, today: day.isToday }"
+            @click="selectedDateKey = day.dateKey"
+          >
+            <strong>{{ day.label }}</strong>
+            <span>{{ formatDayLabel(day.date) }}</span>
+            <small>{{ day.courses.length }} 课 · {{ day.todos.length }} 任务 · {{ day.exams.length }} 考试</small>
+          </button>
+        </div>
+      </SectionCard>
+
       <SectionCard v-if="isLoadingTerm" title="切换学期中" subtitle="正在加载所选学期课表。">
         <div class="state-card">请稍候，正在重新构建本周视图。</div>
       </SectionCard>
@@ -602,7 +619,7 @@ onMounted(() => {
           </div>
         </SectionCard>
 
-        <SectionCard :title="selectedDayLabel" :subtitle="`当天共 ${selectedDayItemsCount} 项安排，课程 ${selectedDayCourseCount} 项。`">
+        <SectionCard :title="selectedDayLabel" :subtitle="`当天共 ${selectedDayItemsCount} 项安排，课程 ${selectedDayCourseCount} 项。列表与周日历都会联动到这里。`">
           <div v-if="!selectedDayItemsCount" class="state-card">这一天没有课程、任务或考试安排。</div>
 
           <div v-else class="agenda-groups">
@@ -819,8 +836,153 @@ onMounted(() => {
   background: var(--surface-1);
   padding: 0.9rem;
 }
+.focus-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.focus-pill {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card-sm);
+  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
+  padding: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  box-shadow: var(--shadow-soft);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.focus-pill strong {
+  color: var(--text-primary);
+}
+
+.focus-pill span,
+.focus-pill small {
+  color: var(--text-secondary);
+}
+
+.focus-pill.today {
+  border-color: color-mix(in srgb, var(--accent-border) 82%, var(--border-subtle));
+}
+
+.focus-pill.active {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-text) 12%, var(--surface-1)) 0%, var(--surface-accent) 100%);
+  border-color: var(--accent-border);
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--accent-text) 10%, transparent);
+  transform: translateY(-1px);
+}
+
+.focus-pill:hover {
+  border-color: var(--border-strong);
+}
+
+.timetable-matrix {
+  display: grid;
+  grid-template-columns: 84px repeat(7, minmax(120px, 1fr));
+  gap: 0.55rem;
+  align-items: stretch;
+}
+
+.timetable-matrix__head,
+.timetable-matrix__period,
+.timetable-matrix__cell {
+  min-height: 72px;
+}
+
+.timetable-matrix__head,
+.timetable-matrix__period {
+  border-radius: var(--radius-card-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.65rem;
+}
+
+.timetable-matrix__head {
+  cursor: pointer;
+}
+
+.timetable-matrix__head small {
+  color: var(--text-secondary);
+}
+
+.timetable-matrix__head.today,
+.timetable-matrix__head.selected {
+  border-color: var(--accent-border);
+}
+
+.timetable-matrix__head.selected {
+  background: var(--surface-accent);
+}
+
+.timetable-matrix__cell {
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
+  border-radius: var(--radius-card-sm);
+  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
+  padding: 0.25rem;
+}
+
+.timetable-matrix__cell.selected {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-border) 72%, transparent);
+}
+
+.matrix-course-card {
+  width: 100%;
+  min-height: 100%;
+  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 30%, var(--border-subtle));
+  border-radius: calc(var(--radius-card-sm) - 2px);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 12%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  color: var(--text-primary);
+  text-align: left;
+  padding: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.28rem;
+  cursor: pointer;
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, transparent);
+}
+
+.matrix-course-card strong {
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.matrix-course-card small {
+  color: var(--text-secondary);
+}
+
+.matrix-course-card--ghost {
+  border-style: dashed;
+  opacity: 0.4;
+  box-shadow: none;
+}
+
+.agenda-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.agenda-group {
+  min-width: 0;
+}
+
+.agenda-group h3 {
+  margin: 0;
+}
 
 @media (max-width: 1440px) {
+  .focus-strip,
   .week-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -840,10 +1002,12 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .calendar-stats {
+  .calendar-stats,
+  .agenda-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .focus-strip,
   .week-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -851,7 +1015,9 @@ onMounted(() => {
 
 @media (max-width: 720px) {
   .calendar-stats,
-  .week-grid {
+  .week-grid,
+  .focus-strip,
+  .agenda-groups {
     grid-template-columns: 1fr;
   }
 
