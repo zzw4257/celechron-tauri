@@ -63,6 +63,12 @@ const sourceLabelMap: Record<string, string> = {
   homework: '作业附件',
 };
 
+const sourceDescriptionMap: Record<string, string> = {
+  classroom: '优先展示本周课堂讲稿与 PPT 预览，贴近 zju-learning-assistant 的进入逻辑。',
+  activity: '课程活动附件只保留当前学期窗口，避免旧学期内容一股脑混进来。',
+  homework: '作业附件作为次级来源，适合补找老师随作业下发的讲义与材料。',
+};
+
 function navigateToSettings() {
   window.dispatchEvent(new CustomEvent('celechron:navigate', { detail: { tab: 'option' } }));
 }
@@ -81,6 +87,10 @@ function formatBytes(bytes: number) {
 
 function sourceLabel(type: string) {
   return sourceLabelMap[type] || type;
+}
+
+function sourceDescription(type: string) {
+  return sourceDescriptionMap[type] || '当前来源资料会按时间与课程过滤后展示。';
 }
 
 function weekBucketLabel(value: string) {
@@ -187,23 +197,30 @@ const visibleRemoteItems = computed(() => {
     });
 });
 
-const remoteCourseGroups = computed(() => {
+const remoteSourceSections = computed(() => {
   const grouped = new Map<string, RemoteMaterialAsset[]>();
   for (const item of visibleRemoteItems.value) {
-    const bucket = grouped.get(item.courseName) || [];
+    const bucket = grouped.get(item.sourceType) || [];
     bucket.push(item);
-    grouped.set(item.courseName, bucket);
+    grouped.set(item.sourceType, bucket);
   }
 
   return [...grouped.entries()]
-    .map(([courseName, entries]) => ({
-      courseName,
+    .sort((left, right) => sourceRank(left[0]) - sourceRank(right[0]) || sourceLabel(left[0]).localeCompare(sourceLabel(right[0])))
+    .map(([sourceType, entries]) => ({
+      sourceType,
+      sourceLabel: sourceLabel(sourceType),
+      sourceDescription: sourceDescription(sourceType),
       currentCount: entries.filter((item) => item.weekBucket === 'current').length,
-      termCount: entries.filter((item) => item.weekBucket === 'current' || item.weekBucket === 'other').length,
       downloadedCount: entries.filter((item) => item.downloaded).length,
-      entries,
-    }))
-    .sort((left, right) => right.currentCount - left.currentCount || right.termCount - left.termCount || right.entries.length - left.entries.length || left.courseName.localeCompare(right.courseName));
+      courseCount: new Set(entries.map((item) => item.courseName)).size,
+      entries: [...entries].sort((left, right) => {
+        return (left.weekBucket === 'current' ? -1 : 1) - (right.weekBucket === 'current' ? -1 : 1)
+          || right.updatedAt - left.updatedAt
+          || left.courseName.localeCompare(right.courseName)
+          || left.title.localeCompare(right.title);
+      }),
+    }));
 });
 
 const visibleLocalItems = computed(() => {
@@ -263,9 +280,19 @@ const summaryStats = computed(() => ({
 
 const classroomMissing = computed(() => summaryStats.value.classroom === 0);
 const scopeSubtitle = computed(() => {
-  if (selectedScope.value === 'current-week') return '优先显示本周课堂资料与本周新附件。';
-  if (selectedScope.value === 'current-term') return '仅展示当前学期窗口内的远程资料。';
+  if (selectedScope.value === 'current-week') return '优先显示本周课堂资料与本周新附件，默认先看智云课堂。';
+  if (selectedScope.value === 'current-term') return '仅展示当前学期窗口内的远程资料，并维持智云课堂优先。';
   return '这里只展开当前账号已同步过的个人资料，不代表平台公共全量。';
+});
+
+const emptyRemoteHint = computed(() => {
+  if (selectedSource.value === 'classroom') {
+    return '当前筛选下没有智云课堂资料。可先同步当前周，或切到“本学期 / 全部个人”查看已经归档到当前账号的课堂资料。';
+  }
+  if (selectedScope.value === 'current-week') {
+    return '当前筛选下没有本周资料。先同步当前周，或切到“本学期 / 全部个人”查看更完整的个人资料。';
+  }
+  return '当前筛选下没有远程资料。先点“同步并刷新资料”，或调整来源、课程和搜索条件。';
 });
 
 const warningSummary = computed(() => {
@@ -595,38 +622,46 @@ onMounted(() => {
       <div class="materials-layout">
         <div class="materials-main">
           <SectionCard title="远程资料" :subtitle="scopeSubtitle">
-            <div v-if="remoteCourseGroups.length === 0" class="state-card">
-              当前筛选下没有远程资料。先点“同步并刷新资料”，或切到“全部个人”查看当前账号更完整的个人课程附件。
+            <div v-if="remoteSourceSections.length === 0" class="state-card">
+              {{ emptyRemoteHint }}
             </div>
 
-            <div v-else class="course-groups">
-              <article v-for="group in remoteCourseGroups" :key="group.courseName" class="course-group">
-                <header class="course-group__header">
+            <div v-else class="course-groups source-groups">
+              <article v-for="section in remoteSourceSections" :key="section.sourceType" class="course-group source-group">
+                <header class="course-group__header source-group__header">
                   <div>
-                    <h3>{{ group.courseName }}</h3>
-                    <p>{{ selectedScope === 'current-week' ? `${group.currentCount} 份本周可看` : selectedScope === 'current-term' ? `${group.termCount} 份本学期可看` : `${group.entries.length} 份历史资料` }} · {{ group.downloadedCount }} 份已缓存</p>
+                    <div class="source-group__title-row">
+                      <h3>{{ section.sourceLabel }}</h3>
+                      <span class="badge accent">{{ section.entries.length }} 项</span>
+                    </div>
+                    <p>{{ section.sourceDescription }}</p>
                   </div>
-                  <span class="badge">{{ group.entries.length }} 项</span>
+                  <div class="source-group__stats">
+                    <span class="badge" :class="section.currentCount ? 'success' : ''">{{ section.currentCount }} 本周</span>
+                    <span class="badge">{{ section.courseCount }} 门课</span>
+                    <span class="badge">{{ section.downloadedCount }} 已缓存</span>
+                  </div>
                 </header>
 
-                <div class="course-group__list">
+                <div class="course-group__list source-group__list">
                   <div
-                    v-for="item in group.entries"
+                    v-for="item in section.entries"
                     :key="item.id"
                     class="remote-row"
                     :class="{ active: selectedRemoteId === item.id }"
                   >
                     <button type="button" class="remote-row__select" @click="selectRemoteItem(item)">
                       <div class="remote-row__headline">
-                        <strong>{{ item.title }}</strong>
-                        <div class="remote-row__badges">
-                          <span class="badge accent">{{ sourceLabel(item.sourceType) }}</span>
-                          <span class="badge" :class="item.weekBucket === 'current' ? 'success' : ''">{{ weekBucketLabel(item.weekBucket) }}</span>
-                          <span v-if="item.downloaded" class="badge success">已缓存</span>
+                        <div class="remote-row__title-line">
+                          <strong>{{ item.title }}</strong>
+                          <div class="remote-row__badges">
+                            <span class="badge" :class="item.weekBucket === 'current' ? 'success' : ''">{{ weekBucketLabel(item.weekBucket) }}</span>
+                            <span v-if="item.downloaded" class="badge success">已缓存</span>
+                          </div>
                         </div>
+                        <p>{{ item.courseName }}</p>
                       </div>
-                      <p>{{ item.fileName }}</p>
-                      <small>{{ formatTime(item.updatedAt) }}</small>
+                      <small>{{ item.fileName }} · {{ formatTime(item.updatedAt) }}</small>
                     </button>
 
                     <div class="remote-row__actions">
@@ -807,7 +842,9 @@ onMounted(() => {
 .course-group__list,
 .local-list,
 .preview-body,
-.preview-gallery {
+.preview-gallery,
+.source-group__stats,
+.source-group__title-row {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -816,8 +853,16 @@ onMounted(() => {
 .course-group {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card-sm);
-  background: var(--surface-2);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 90%, white) 0%, var(--surface-1) 100%);
   padding: 0.9rem;
+}
+
+.source-groups {
+  gap: 1rem;
+}
+
+.source-group {
+  padding: 1rem;
 }
 
 .course-group__header {
@@ -827,6 +872,23 @@ onMounted(() => {
   gap: 0.75rem;
   padding-bottom: 0.7rem;
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.source-group__header {
+  gap: 1rem;
+}
+
+.source-group__title-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.source-group__stats {
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .course-group__header h3 {
@@ -876,7 +938,14 @@ onMounted(() => {
 .remote-row__headline {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.42rem;
+}
+
+.remote-row__title-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.7rem;
 }
 
 .remote-row__headline strong,
@@ -962,14 +1031,26 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
+  .source-group__header,
+  .remote-row__title-line {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
   .remote-row,
   .local-row {
     grid-template-columns: 1fr;
   }
 
+  .source-group__stats,
+  .remote-row__badges,
   .remote-row__actions,
   .local-row__actions {
     justify-content: flex-start;
+  }
+
+  .remote-row__actions,
+  .local-row__actions {
     padding: 0 0.8rem 0.8rem;
   }
 }
