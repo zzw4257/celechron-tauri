@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
 import ActionPill from '../ui/ActionPill.vue';
-import InlineStat from '../ui/InlineStat.vue';
 import SectionCard from '../ui/SectionCard.vue';
-import SegmentedFilter from '../ui/SegmentedFilter.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
+import { CalendarDays, ChevronLeft, ChevronRight, List } from 'lucide-vue-next';
 import { fetchScholarData, fetchTimetable, fetchTodos } from '../../services/api';
 import type { ScholarPayload, TodoItem, TimetablePayload } from '../../types/api';
 import { usePreferences } from '../../composables/usePreferences';
@@ -537,9 +536,57 @@ onMounted(() => {
     </SectionCard>
 
     <template v-else>
-      <SectionCard dense title="学期与周次" subtitle="默认定位到当前课表学期与当前周。">
-        <div class="calendar-toolbar">
-          <div class="term-tabs">
+      <SectionCard v-if="!isLoadingTerm && activePayload" dense class="calendar-command-card">
+        <div class="calendar-command">
+          <div class="calendar-command__hero">
+            <div class="calendar-command__week">
+              <button type="button" class="week-switch" :disabled="currentWeek <= 1 || isLoadingTerm" @click="changeWeek(-1)">
+                <ChevronLeft :size="18" />
+              </button>
+              <div class="week-hero">
+                <span class="week-hero__eyebrow">{{ activePayload?.displayName || activeTerm?.displayName || '当前学期' }}</span>
+                <strong>第 {{ currentWeek }} / {{ totalWeeks }} 周</strong>
+                <p>{{ weekRangeLabel }}</p>
+              </div>
+              <button type="button" class="week-switch" :disabled="currentWeek >= totalWeeks || isLoadingTerm" @click="changeWeek(1)">
+                <ChevronRight :size="18" />
+              </button>
+            </div>
+
+            <div class="calendar-command__side">
+              <div class="view-switch" role="tablist" aria-label="课表模式切换">
+                <button type="button" class="view-switch__item" :class="{ active: calendarMode === 'table' }" @click="setCalendarMode('table')">
+                  <CalendarDays :size="16" />
+                  <span>周课表</span>
+                </button>
+                <button type="button" class="view-switch__item" :class="{ active: calendarMode === 'list' }" @click="setCalendarMode('list')">
+                  <List :size="16" />
+                  <span>列表模式</span>
+                </button>
+              </div>
+              <ActionPill tone="accent" :disabled="!activePayload || isLoadingTerm" @click="goToToday">回到今天</ActionPill>
+            </div>
+          </div>
+
+          <div class="calendar-command__stats">
+            <article class="command-stat primary">
+              <span>本周课程</span>
+              <strong>{{ weekCourseCount }} 节</strong>
+              <small>{{ weekPeriodCount }} 节课时</small>
+            </article>
+            <article class="command-stat">
+              <span>本周任务 / 考试</span>
+              <strong>{{ weekTodoCount }} / {{ weekExamCount }}</strong>
+              <small>{{ selectedDayLabel }}</small>
+            </article>
+            <article class="command-stat">
+              <span>时间基准</span>
+              <strong>{{ anchorLabel }}</strong>
+              <small>{{ anchorInfo?.key || '未加载' }}</small>
+            </article>
+          </div>
+
+          <div class="term-tabs command-terms">
             <button
               v-for="term in termTabs"
               :key="term.name"
@@ -552,32 +599,6 @@ onMounted(() => {
             </button>
           </div>
 
-          <div class="week-actions">
-            <ActionPill :disabled="!activePayload || currentWeek <= 1 || isLoadingTerm" @click="changeWeek(-1)">上一周</ActionPill>
-            <span class="week-badge">第 {{ currentWeek }} / {{ totalWeeks }} 周</span>
-            <ActionPill :disabled="!activePayload || currentWeek >= totalWeeks || isLoadingTerm" @click="changeWeek(1)">下一周</ActionPill>
-            <ActionPill tone="accent" :disabled="!activePayload || isLoadingTerm" @click="goToToday">今天</ActionPill>
-          </div>
-        </div>
-      </SectionCard>
-
-      <div class="calendar-stats">
-        <InlineStat label="当前学期" :value="activePayload?.displayName || activeTerm?.displayName || '未加载'" :hint="weekRangeLabel" emphasis />
-        <InlineStat label="本周课程" :value="String(weekCourseCount)" :hint="`${weekPeriodCount} 节课时`" />
-        <InlineStat label="待办 / 考试" :value="`${weekTodoCount} / ${weekExamCount}`" :hint="selectedDayLabel" />
-        <InlineStat label="时间基准" :value="anchorLabel" :hint="anchorInfo?.key || '未加载'" />
-      </div>
-
-      <SectionCard v-if="!isLoadingTerm && activePayload" dense title="视图模式" subtitle="周课表与列表模式可切换；移动端更适合列表，桌面端更适合表格。">
-        <div class="calendar-mode-toolbar">
-          <SegmentedFilter
-            :model-value="calendarMode"
-            :options="[
-              { value: 'table', label: '周课表' },
-              { value: 'list', label: '列表模式' },
-            ]"
-            @update:model-value="setCalendarMode($event as 'table' | 'list')"
-          />
           <p class="mode-note">{{ calendarModeNote }}</p>
         </div>
       </SectionCard>
@@ -601,8 +622,8 @@ onMounted(() => {
                 :style="{ gridColumn: String(dayIndex + 2), gridRow: '1' }"
                 @click="selectedDateKey = day.dateKey"
               >
-                <strong>{{ day.label }}</strong>
                 <span>{{ formatDayLabel(day.date) }}</span>
+                <strong>{{ day.label }}</strong>
                 <small>{{ day.courses.length }} 课 · {{ day.todos.length }} 任务 · {{ day.exams.length }} 考试</small>
               </button>
 
@@ -752,11 +773,7 @@ onMounted(() => {
 }
 
 .calendar-header-actions,
-.calendar-toolbar,
-.week-actions,
 .term-tabs,
-.calendar-mode-toolbar,
-.calendar-stats,
 .week-list-day__badges,
 .agenda-group {
   display: flex;
@@ -768,59 +785,179 @@ onMounted(() => {
   align-items: center;
 }
 
-.calendar-toolbar {
+.calendar-command-card {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-text) 8%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 3%, var(--surface-1)) 48%, var(--surface-2) 100%);
+}
+
+.calendar-command {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.calendar-command__hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) auto;
+  gap: 1rem;
   align-items: center;
-  justify-content: space-between;
+}
+
+.calendar-command__week {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.week-switch {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+}
+
+.week-switch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.week-hero {
+  min-height: 7.75rem;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 32%, var(--border-subtle));
+  border-radius: 30px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--surface-1) 92%, var(--accent-text) 4%) 0%, color-mix(in srgb, var(--surface-2) 92%, var(--accent-text) 8%) 100%);
+  padding: 1.1rem 1.35rem;
+  box-shadow: 0 24px 44px color-mix(in srgb, var(--accent-text) 10%, transparent);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.week-hero__eyebrow {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+}
+
+.week-hero strong {
+  color: var(--text-primary);
+  font-size: clamp(1.4rem, 2.1vw, 1.85rem);
+  line-height: 1.15;
+}
+
+.week-hero p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.calendar-command__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.8rem;
+}
+
+.view-switch {
+  display: inline-flex;
+  gap: 0.45rem;
+  padding: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+.view-switch__item {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  min-height: 2.5rem;
+  padding: 0.55rem 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+}
+
+.view-switch__item.active {
+  background: color-mix(in srgb, var(--accent-text) 11%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--accent-border) 72%, var(--border-subtle));
+  color: var(--text-primary);
+}
+
+.calendar-command__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.command-stat {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card-sm);
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  padding: 0.9rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+.command-stat span,
+.command-stat small {
+  color: var(--text-secondary);
+}
+
+.command-stat strong {
+  color: var(--text-primary);
+  font-size: 1.15rem;
+  line-height: 1.2;
+}
+
+.command-stat.primary {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-text) 10%, var(--surface-1)) 0%, var(--surface-accent) 100%);
+  border-color: color-mix(in srgb, var(--accent-border) 70%, var(--border-subtle));
 }
 
 .term-tabs {
-  flex: 1;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.command-terms {
+  gap: 0.55rem;
 }
 
 .term-tab {
   border: 1px solid var(--border-subtle);
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-1) 90%, transparent);
   color: var(--text-secondary);
-  border-radius: var(--radius-pill);
+  border-radius: 999px;
   min-height: 2.35rem;
   padding: 0.55rem 0.95rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .term-tab.active {
-  background: var(--surface-accent);
+  background: color-mix(in srgb, var(--accent-text) 14%, var(--surface-1));
   border-color: var(--accent-border);
-  color: var(--accent-text);
-}
-
-.week-actions {
-  align-items: center;
-}
-
-.week-badge {
-  min-height: 2.35rem;
-  display: inline-flex;
-  align-items: center;
-  padding: 0.55rem 0.95rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-2);
   color: var(--text-primary);
-}
-
-.calendar-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.calendar-mode-toolbar {
-  align-items: center;
-  justify-content: space-between;
 }
 
 .mode-note {
   margin: 0;
   color: var(--text-secondary);
+  font-size: 0.9rem;
 }
 
 .calendar-main {
@@ -830,21 +967,28 @@ onMounted(() => {
   align-items: start;
 }
 
+.calendar-stage {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 4%, var(--surface-1)) 0%, var(--surface-1) 100%);
+}
+
 .calendar-detail {
   position: sticky;
   top: calc(var(--safe-top, 0px) + 1rem);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 3%, var(--surface-1)) 0%, var(--surface-1) 100%);
 }
 
 .timetable-board-shell {
   overflow-x: auto;
-  padding-bottom: 0.25rem;
+  padding: 0.3rem 0.15rem 0.4rem;
+  border-radius: 30px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent-text) 8%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 3%, var(--surface-1)) 100%);
 }
 
 .timetable-board {
   display: grid;
-  grid-template-columns: 82px repeat(7, minmax(132px, 1fr));
-  gap: 0.55rem;
-  min-width: 1120px;
+  grid-template-columns: 84px repeat(7, minmax(136px, 1fr));
+  gap: 0.65rem;
+  min-width: 1140px;
 }
 
 .timetable-board__corner,
@@ -857,7 +1001,7 @@ onMounted(() => {
 
 .timetable-board__corner,
 .timetable-board__time {
-  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 96%, white) 0%, var(--surface-2) 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -882,7 +1026,7 @@ onMounted(() => {
 }
 
 .timetable-board__day {
-  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 96%, white) 0%, var(--surface-2) 100%);
   padding: 0.85rem 0.75rem;
   text-align: left;
   display: flex;
@@ -912,7 +1056,8 @@ onMounted(() => {
 }
 
 .timetable-board__cell {
-  background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  border-color: color-mix(in srgb, var(--border-subtle) 80%, transparent);
 }
 
 .timetable-board__cell.selected {
@@ -921,12 +1066,12 @@ onMounted(() => {
 }
 
 .timetable-course-block {
-  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 36%, var(--border-subtle));
-  border-radius: var(--radius-card-sm);
-  background: linear-gradient(165deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 16%, var(--surface-1)) 0%, color-mix(in srgb, var(--course-accent, var(--accent-text)) 8%, var(--surface-1)) 100%);
+  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 40%, var(--border-subtle));
+  border-radius: 20px;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 18%, white) 0%, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1)) 100%);
   color: var(--text-primary);
-  box-shadow: 0 18px 34px color-mix(in srgb, var(--course-accent, var(--accent-text)) 12%, transparent);
-  padding: 0.8rem;
+  box-shadow: 0 18px 34px color-mix(in srgb, var(--course-accent, var(--accent-text)) 14%, transparent);
+  padding: 0.9rem 0.85rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -1091,8 +1236,13 @@ onMounted(() => {
 }
 
 @media (max-width: 1180px) {
+  .calendar-command__hero,
   .calendar-main {
     grid-template-columns: 1fr;
+  }
+
+  .calendar-command__side {
+    align-items: flex-start;
   }
 
   .calendar-detail {
@@ -1105,25 +1255,31 @@ onMounted(() => {
 }
 
 @media (max-width: 900px) {
-  .calendar-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .calendar-command__week {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
   }
 
-  .calendar-mode-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+  .calendar-command__stats {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 720px) {
-  .calendar-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+  .calendar-command__hero {
+    gap: 0.9rem;
   }
 
-  .calendar-stats,
-  .week-list,
-  .day-picker {
+  .view-switch {
+    width: 100%;
+  }
+
+  .view-switch__item {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .day-picker,
+  .week-list {
     grid-template-columns: 1fr;
   }
 
