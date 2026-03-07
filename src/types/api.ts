@@ -168,6 +168,7 @@ export interface MaterialSourceSummary {
   downloadedCount: number;
   available: boolean;
   warning?: string | null;
+  notes?: string[];
 }
 
 export interface RemoteMaterialAsset {

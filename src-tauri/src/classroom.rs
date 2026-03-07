@@ -26,12 +26,23 @@ pub struct ClassroomSubject {
     pub week_bucket: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassroomQuerySummary {
+    pub current_week_attempted: bool,
+    pub current_week_count: usize,
+    pub course_scan_attempted: usize,
+    pub course_scan_succeeded: usize,
+    pub course_scan_failed: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassroomFetchResult {
     pub items: Vec<ClassroomSubject>,
     pub warnings: Vec<String>,
     pub week_label: String,
+    pub query_summary: ClassroomQuerySummary,
 }
 
 #[derive(Clone)]
@@ -307,9 +318,14 @@ impl ClassroomSession {
         let mut warnings = Vec::new();
         let mut current_items = Vec::<ClassroomSubject>::new();
         let mut current_ids = HashSet::<(i64, i64)>::new();
+        let mut query_summary = ClassroomQuerySummary {
+            current_week_attempted: true,
+            ..ClassroomQuerySummary::default()
+        };
 
         match self.fetch_range_subjects(week_start, week_end).await {
             Ok(subjects) => {
+                query_summary.current_week_count = subjects.len();
                 for subject in subjects {
                     current_ids.insert((subject.course_id, subject.sub_id));
                     current_items.push(subject);
@@ -320,9 +336,14 @@ impl ClassroomSession {
 
         let mut all_subjects = Vec::<ClassroomSubject>::new();
         for course_id in course_ids.iter().copied().filter(|value| *value > 0) {
+            query_summary.course_scan_attempted += 1;
             match self.fetch_course_subjects(course_id).await {
-                Ok(subjects) => all_subjects.extend(subjects),
+                Ok(subjects) => {
+                    query_summary.course_scan_succeeded += 1;
+                    all_subjects.extend(subjects)
+                }
                 Err(error) => {
+                    query_summary.course_scan_failed += 1;
                     warnings.push(format!("智云课堂课程 {course_id} 资料同步失败: {error}"))
                 }
             }
@@ -375,6 +396,7 @@ impl ClassroomSession {
             items,
             warnings,
             week_label,
+            query_summary,
         })
     }
 

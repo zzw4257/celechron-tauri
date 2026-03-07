@@ -1,4 +1,4 @@
-use crate::classroom::{ClassroomSession, ClassroomSubject};
+use crate::classroom::{ClassroomQuerySummary, ClassroomSession, ClassroomSubject};
 use crate::courses;
 use crate::term;
 use crate::zjuam::AppState;
@@ -75,6 +75,8 @@ pub struct MaterialSourceSummary {
     pub downloaded_count: usize,
     pub available: bool,
     pub warning: Option<String>,
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -85,6 +87,12 @@ struct RemoteMaterialsIndex {
     last_synced_at: Option<u64>,
     warnings: Vec<String>,
     week_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct MaterialSourceContext {
+    classroom_query_summary: Option<ClassroomQuerySummary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -865,6 +873,7 @@ fn build_course_filters(items: &[RemoteMaterialAsset]) -> Vec<CourseFilter> {
 fn build_material_source_summaries(
     items: &[RemoteMaterialAsset],
     warnings: &[String],
+    context: &MaterialSourceContext,
 ) -> Vec<MaterialSourceSummary> {
     SOURCE_PRIORITY
         .iter()
@@ -882,6 +891,24 @@ fn build_material_source_summaries(
                     _ => false,
                 })
                 .cloned();
+            let notes = if *source == "classroom" {
+                if let Some(summary) = &context.classroom_query_summary {
+                    let mut notes = vec![format!(
+                        "本周模式 {} 条，课程全量扫描 {}/{} 门",
+                        summary.current_week_count,
+                        summary.course_scan_succeeded,
+                        summary.course_scan_attempted
+                    )];
+                    if summary.course_scan_failed > 0 {
+                        notes.push(format!("其中 {} 门课程扫描失败，已自动回退到可用结果。", summary.course_scan_failed));
+                    }
+                    notes
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
             MaterialSourceSummary {
                 source_type: (*source).to_string(),
                 label: match *source {
@@ -896,12 +923,17 @@ fn build_material_source_summaries(
                 downloaded_count: related.iter().filter(|item| item.downloaded).count(),
                 available: !related.is_empty(),
                 warning,
+                notes,
             }
         })
         .collect()
 }
 
-fn build_materials_payload(items: Vec<MaterialAsset>, mut index: RemoteMaterialsIndex) -> Value {
+fn build_materials_payload(
+    items: Vec<MaterialAsset>,
+    mut index: RemoteMaterialsIndex,
+    context: &MaterialSourceContext,
+) -> Value {
     index.version = REMOTE_INDEX_VERSION;
     index.items = attach_download_status(index.items, &items);
     let default_scope = if index.items.iter().any(|item| item.week_bucket == "current") {
@@ -913,7 +945,7 @@ fn build_materials_payload(items: Vec<MaterialAsset>, mut index: RemoteMaterials
     };
     let available_remote_count = index.items.iter().filter(|item| !item.downloaded).count();
     let course_filters = build_course_filters(&index.items);
-    let source_summaries = build_material_source_summaries(&index.items, &index.warnings);
+    let source_summaries = build_material_source_summaries(&index.items, &index.warnings, context);
     json!({
         "defaultScope": default_scope,
         "weekLabel": index.week_label,
@@ -944,7 +976,7 @@ pub fn fetch_materials(app: &AppHandle) -> Result<Value, String> {
     let root = materials_root(app)?;
     let items = read_materials(&root)?;
     let index = read_remote_index(&root);
-    Ok(build_materials_payload(items, index))
+    Ok(build_materials_payload(items, index, &MaterialSourceContext::default()))
 }
 
 pub async fn sync_materials_index(app: &AppHandle, state: &AppState) -> Result<Value, String> {
@@ -1047,7 +1079,9 @@ pub async fn sync_materials_index(app: &AppHandle, state: &AppState) -> Result<V
                 };
                 index.items = attach_download_status(index.items, &local_items);
                 write_remote_index(&root, &index)?;
-                return Ok(build_materials_payload(local_items, index));
+                return Ok(build_materials_payload(local_items, index, &MaterialSourceContext {
+                    classroom_query_summary: Some(result.query_summary),
+                }));
             }
             Err(error) => warnings.push(format!("智云课堂资料同步失败: {error}")),
         },
@@ -1063,7 +1097,7 @@ pub async fn sync_materials_index(app: &AppHandle, state: &AppState) -> Result<V
         week_label: None,
     };
     write_remote_index(&root, &index)?;
-    Ok(build_materials_payload(local_items, index))
+    Ok(build_materials_payload(local_items, index, &MaterialSourceContext::default()))
 }
 
 pub async fn download_material_asset(

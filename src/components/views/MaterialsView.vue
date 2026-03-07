@@ -640,6 +640,7 @@ onMounted(() => {
                     </div>
                     <p>{{ section.sourceDescription }}</p>
                     <small v-if="sourceSummaryMap.get(section.sourceType)?.warning" class="source-group__warning">{{ sourceSummaryMap.get(section.sourceType)?.warning }}</small>
+                    <small v-for="note in sourceSummaryMap.get(section.sourceType)?.notes || []" :key="note" class="source-group__note">{{ note }}</small>
                   </div>
                   <div class="source-group__stats">
                     <span class="badge" :class="section.currentCount ? 'success' : ''">{{ section.currentCount }} 本周</span>
@@ -902,6 +903,11 @@ onMounted(() => {
   color: var(--warning-text);
 }
 
+.source-group__note {
+  display: block;
+  margin-top: 0.28rem;
+}
+
 .course-group__header h3 {
   margin: 0;
   font-size: 0.98rem;
@@ -912,7 +918,8 @@ onMounted(() => {
 .remote-row__select p,
 .local-row__select p,
 .helper-text,
-.source-group__warning {
+.source-group__warning,
+.source-group__note {
   margin: 0.2rem 0 0;
   color: var(--text-secondary);
 }
