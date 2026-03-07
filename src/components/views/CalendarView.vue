@@ -478,6 +478,21 @@ const selectedDaySubtitle = computed(() => {
   if (!selectedDay.value) return '未选择日期';
   return `课程 ${selectedDay.value.courses.length} 项 · 任务 ${selectedDay.value.todos.length} 项 · 考试 ${selectedDay.value.exams.length} 项`;
 });
+const selectedDayFocusText = computed(() => {
+  if (!selectedDay.value) return '未选择日期';
+  const fragments: string[] = [];
+  const firstCourse = selectedDay.value.courses[0];
+  if (firstCourse) {
+    fragments.push(`最早课程 ${firstCourse.startSlot?.start || '--:--'} 开始`);
+  }
+  if (selectedDay.value.todos.length) {
+    fragments.push(`${selectedDay.value.todos.length} 项待办提醒`);
+  }
+  if (selectedDay.value.exams.length) {
+    fragments.push(`${selectedDay.value.exams.length} 场考试安排`);
+  }
+  return fragments.join(' · ') || '这一天适合留给复盘、整理资料或休息。';
+});
 const selectedDaySummaryCards = computed(() => {
   if (!selectedDay.value) return [];
   return [
@@ -722,9 +737,9 @@ onMounted(() => {
                 @click="selectedDateKey = block.dateKey"
               >
                 <span class="timetable-course-block__period">{{ block.periodLabel }}</span>
-                <strong>{{ block.course.session.courseName }}</strong>
-                <small>{{ block.start }} - {{ block.end }}</small>
-                <small>{{ block.course.session.location || '地点待定' }}</small>
+                <strong class="timetable-course-block__title">{{ block.course.session.courseName }}</strong>
+                <small class="timetable-course-block__meta">{{ block.start }} - {{ block.end }}</small>
+                <small class="timetable-course-block__meta">{{ block.course.session.location || '地点待定' }}</small>
               </button>
             </div>
           </div>
@@ -759,7 +774,7 @@ onMounted(() => {
                   @click="selectedDateKey = day.dateKey"
                 >
                   <div>
-                    <strong>{{ course.session.courseName }}</strong>
+                    <strong class="week-list-course__title">{{ course.session.courseName }}</strong>
                     <p>{{ course.startSlot?.start || '--:--' }} - {{ course.endSlot?.end || '--:--' }} · 第{{ course.session.startPeriod }}-{{ course.session.endPeriod }}节</p>
                   </div>
                   <small>{{ course.session.location || '地点待定' }}</small>
@@ -771,6 +786,15 @@ onMounted(() => {
         </SectionCard>
 
         <SectionCard class="calendar-detail" :title="selectedDayLabel" :subtitle="selectedDaySubtitle">
+          <div class="detail-hero">
+            <div class="detail-hero__copy">
+              <span class="detail-hero__eyebrow">{{ selectedDay?.isToday ? '今天焦点' : '当日日程' }}</span>
+              <strong>{{ selectedDayLabel }}</strong>
+              <p>{{ selectedDayFocusText }}</p>
+            </div>
+            <span class="badge" :class="selectedDayItemsCount ? 'accent' : ''">{{ selectedDayItemsCount }} 项</span>
+          </div>
+
           <div class="day-picker">
             <button
               v-for="day in weekDays"
@@ -880,6 +904,16 @@ onMounted(() => {
   justify-content: center;
   cursor: pointer;
   box-shadow: var(--shadow-soft);
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.week-switch:hover:not(:disabled),
+.term-tab:hover,
+.day-picker__item:hover,
+.view-switch__item:hover,
+.week-list-course:hover,
+.timetable-course-block:hover {
+  transform: translateY(-1px);
 }
 
 .week-switch:disabled {
@@ -1009,6 +1043,13 @@ onMounted(() => {
   flex-wrap: nowrap;
   overflow-x: auto;
   padding-bottom: 0.15rem;
+  scrollbar-width: none;
+}
+
+.term-tabs::-webkit-scrollbar,
+.timetable-board-shell::-webkit-scrollbar,
+.day-picker::-webkit-scrollbar {
+  display: none;
 }
 
 .command-terms {
@@ -1143,6 +1184,12 @@ onMounted(() => {
   border-color: color-mix(in srgb, var(--accent-border) 65%, var(--border-subtle));
 }
 
+.timetable-board__day,
+.timetable-board__time,
+.timetable-board__cell {
+  backdrop-filter: blur(10px);
+}
+
 .timetable-course-block {
   border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 40%, var(--border-subtle));
   border-radius: 20px;
@@ -1167,9 +1214,23 @@ onMounted(() => {
   line-height: 1.35;
 }
 
+.timetable-course-block__title,
+.week-list-course__title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .timetable-course-block small,
 .timetable-course-block__period {
   color: var(--text-secondary);
+}
+
+.timetable-course-block__meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .timetable-course-block__period {
@@ -1257,6 +1318,41 @@ onMounted(() => {
   cursor: pointer;
 }
 
+.detail-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.9rem;
+  margin-bottom: 0.95rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: calc(var(--radius-card-sm) + 4px);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent-text) 6%, var(--surface-1)) 0%, var(--surface-1) 100%);
+}
+
+.detail-hero__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.24rem;
+}
+
+.detail-hero__eyebrow {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  letter-spacing: 0.04em;
+}
+
+.detail-hero__copy strong {
+  color: var(--text-primary);
+  font-size: 1.05rem;
+}
+
+.detail-hero__copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
 .day-picker {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -1300,6 +1396,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+  box-shadow: var(--shadow-soft);
 }
 
 .detail-timeline {
@@ -1353,6 +1450,10 @@ onMounted(() => {
 
 .timeline-item__content p {
   line-height: 1.45;
+}
+
+.timeline-item.course {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--timeline-accent) 9%, var(--surface-1)) 0%, var(--surface-1) 100%);
 }
 
 .day-empty {
@@ -1427,7 +1528,22 @@ onMounted(() => {
     justify-content: center;
   }
 
-  .day-picker,
+  .detail-hero {
+    flex-direction: column;
+  }
+
+  .day-picker {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 0.1rem;
+    gap: 0.6rem;
+  }
+
+  .day-picker__item {
+    min-width: 108px;
+    flex: 0 0 auto;
+  }
+
   .week-list {
     grid-template-columns: 1fr;
   }
