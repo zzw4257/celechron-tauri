@@ -42,7 +42,16 @@ interface NormalizedExam {
 }
 
 const WEEKDAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-const COURSE_TONES = ['#0f7aa9', '#1a8b4f', '#a85516', '#c2410c', '#7c3aed', '#2563eb', '#0f766e', '#be123c'];
+const COURSE_PALETTES = [
+  { accent: '#58AEE0', surface: '#DBF1FB', surfaceStrong: '#C9E8F8', border: '#8BC9EA', shadow: 'rgba(88, 174, 224, 0.18)', text: '#1F536B', muted: '#567D91' },
+  { accent: '#61C49A', surface: '#DDF6EA', surfaceStrong: '#CBEDDE', border: '#97D8B9', shadow: 'rgba(97, 196, 154, 0.18)', text: '#245B4B', muted: '#5A8072' },
+  { accent: '#F2A76D', surface: '#FCE8D8', surfaceStrong: '#F8DCC5', border: '#E7BB93', shadow: 'rgba(242, 167, 109, 0.18)', text: '#6B4A2D', muted: '#8D6A4D' },
+  { accent: '#F08BB8', surface: '#FBE0ED', surfaceStrong: '#F6D2E4', border: '#E7A9C7', shadow: 'rgba(240, 139, 184, 0.18)', text: '#6B3450', muted: '#8B5B72' },
+  { accent: '#9C93F4', surface: '#ECE8FD', surfaceStrong: '#DED8FB', border: '#B9B2F1', shadow: 'rgba(156, 147, 244, 0.17)', text: '#453C74', muted: '#6E6698' },
+  { accent: '#77B5F7', surface: '#E0EEFD', surfaceStrong: '#D2E4FB', border: '#9BC5EF', shadow: 'rgba(119, 181, 247, 0.18)', text: '#2C4F73', muted: '#607B97' },
+  { accent: '#66C7CF', surface: '#DDF5F6', surfaceStrong: '#CDEDEE', border: '#97D9DC', shadow: 'rgba(102, 199, 207, 0.18)', text: '#245D62', muted: '#5A8589' },
+  { accent: '#A8D36B', surface: '#EDF7DB', surfaceStrong: '#E1F0C8', border: '#C6DD94', shadow: 'rgba(168, 211, 107, 0.18)', text: '#425C26', muted: '#708552' },
+];
 
 const { accountScope, manualSemesterAnchors, timeConfigMode } = usePreferences();
 
@@ -308,12 +317,29 @@ function goToToday() {
   ensureSelectedDate();
 }
 
-function courseTone(key: string) {
+function courseHash(key: string) {
   let hash = 0;
   for (const char of key) {
     hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   }
-  return COURSE_TONES[hash % COURSE_TONES.length];
+  return hash;
+}
+
+function coursePalette(key: string) {
+  return COURSE_PALETTES[courseHash(key) % COURSE_PALETTES.length];
+}
+
+function courseStyleVars(key: string) {
+  const palette = coursePalette(key);
+  return {
+    '--course-accent': palette.accent,
+    '--course-surface': palette.surface,
+    '--course-surface-strong': palette.surfaceStrong,
+    '--course-border': palette.border,
+    '--course-shadow': palette.shadow,
+    '--course-text': palette.text,
+    '--course-muted': palette.muted,
+  } as Record<string, string>;
 }
 
 function normalizeTodo(todo: TodoItem): NormalizedTodo | null {
@@ -441,7 +467,7 @@ const tableCourseBlocks = computed(() => {
   return weekDays.value.flatMap((day, dayIndex) => day.courses.map((course) => ({
     id: course.id,
     dateKey: day.dateKey,
-    tone: courseTone(course.session.xkkh || course.session.courseName),
+    styleVars: courseStyleVars(course.session.xkkh || course.session.courseName),
     column: String(dayIndex + 2),
     row: `${course.session.startPeriod + 1} / ${course.session.endPeriod + 2}`,
     periodLabel: course.session.startPeriod === course.session.endPeriod
@@ -513,7 +539,7 @@ const selectedDayTimeline = computed(() => {
     meta: `${course.session.location || '地点待定'}${course.session.teacher ? ` · ${course.session.teacher}` : ''}`,
     note: `第${course.session.startPeriod}-${course.session.endPeriod}节`,
     timeLabel: `${course.startSlot?.start || '--:--'} - ${course.endSlot?.end || '--:--'}`,
-    tone: courseTone(course.session.xkkh || course.session.courseName),
+    tone: coursePalette(course.session.xkkh || course.session.courseName).accent,
   }));
 
   const todoItems = selectedDay.value.todos.map((item) => ({
@@ -732,7 +758,7 @@ onMounted(() => {
                 :style="{
                   gridColumn: block.column,
                   gridRow: block.row,
-                  '--course-accent': block.tone,
+                  ...block.styleVars,
                 }"
                 @click="selectedDateKey = block.dateKey"
               >
@@ -770,14 +796,14 @@ onMounted(() => {
                   :key="course.id"
                   type="button"
                   class="week-list-course"
-                  :style="{ '--course-accent': courseTone(course.session.xkkh || course.session.courseName) }"
+                  :style="courseStyleVars(course.session.xkkh || course.session.courseName)"
                   @click="selectedDateKey = day.dateKey"
                 >
                   <div>
                     <strong class="week-list-course__title">{{ course.session.courseName }}</strong>
-                    <p>{{ course.startSlot?.start || '--:--' }} - {{ course.endSlot?.end || '--:--' }} · 第{{ course.session.startPeriod }}-{{ course.session.endPeriod }}节</p>
+                    <p class="week-list-course__meta">{{ course.startSlot?.start || '--:--' }} - {{ course.endSlot?.end || '--:--' }} · 第{{ course.session.startPeriod }}-{{ course.session.endPeriod }}节</p>
                   </div>
-                  <small>{{ course.session.location || '地点待定' }}</small>
+                  <small class="week-list-course__meta">{{ course.session.location || '地点待定' }}</small>
                 </button>
               </div>
               <div v-else class="day-empty compact">今日无课，右侧 / 下方详情仍会展示任务与考试。</div>
@@ -857,8 +883,7 @@ onMounted(() => {
 
 .calendar-header-actions,
 .term-tabs,
-.week-list-day__badges,
-.agenda-group {
+.week-list-day__badges {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
@@ -1191,11 +1216,11 @@ onMounted(() => {
 }
 
 .timetable-course-block {
-  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 40%, var(--border-subtle));
+  border: 1px solid var(--course-border, color-mix(in srgb, var(--course-accent, var(--accent-text)) 40%, var(--border-subtle)));
   border-radius: 20px;
-  background: linear-gradient(165deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 18%, white) 0%, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1)) 100%);
-  color: var(--text-primary);
-  box-shadow: 0 18px 34px color-mix(in srgb, var(--course-accent, var(--accent-text)) 14%, transparent);
+  background: linear-gradient(165deg, var(--course-surface-strong, color-mix(in srgb, var(--course-accent, var(--accent-text)) 18%, white)) 0%, var(--course-surface, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1))) 100%);
+  color: var(--course-text, var(--text-primary));
+  box-shadow: 0 18px 34px var(--course-shadow, color-mix(in srgb, var(--course-accent, var(--accent-text)) 14%, transparent));
   padding: 0.9rem 0.85rem;
   display: flex;
   flex-direction: column;
@@ -1206,11 +1231,11 @@ onMounted(() => {
 }
 
 .timetable-course-block.selected {
-  box-shadow: 0 20px 36px color-mix(in srgb, var(--course-accent, var(--accent-text)) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--course-accent, var(--accent-text)) 42%, white);
+  box-shadow: 0 22px 40px var(--course-shadow, color-mix(in srgb, var(--course-accent, var(--accent-text)) 18%, transparent)), inset 0 0 0 1px color-mix(in srgb, var(--course-border, var(--course-accent, var(--accent-text))) 74%, white);
 }
 
 .timetable-course-block strong {
-  color: var(--text-primary);
+  color: var(--course-text, var(--text-primary));
   line-height: 1.35;
 }
 
@@ -1224,7 +1249,7 @@ onMounted(() => {
 
 .timetable-course-block small,
 .timetable-course-block__period {
-  color: var(--text-secondary);
+  color: var(--course-muted, var(--text-secondary));
 }
 
 .timetable-course-block__meta {
@@ -1277,7 +1302,6 @@ onMounted(() => {
 }
 
 .week-list-day__head strong,
-.week-list-course strong,
 .day-picker__item strong,
 .detail-summary-card strong,
 .timeline-item__head strong,
@@ -1285,9 +1309,11 @@ onMounted(() => {
   color: var(--text-primary);
 }
 
+.week-list-course strong {
+  color: var(--course-text, var(--text-primary));
+}
+
 .week-list-day__head p,
-.week-list-course p,
-.week-list-course small,
 .day-picker__item span,
 .detail-summary-card span,
 .detail-summary-card small,
@@ -1298,6 +1324,12 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 
+.week-list-course p,
+.week-list-course small {
+  margin: 0;
+  color: var(--course-muted, var(--text-secondary));
+}
+
 .week-list-day__courses {
   display: flex;
   flex-direction: column;
@@ -1305,12 +1337,12 @@ onMounted(() => {
 }
 
 .week-list-course {
-  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 28%, var(--border-subtle));
+  border: 1px solid var(--course-border, color-mix(in srgb, var(--course-accent, var(--accent-text)) 28%, var(--border-subtle)));
   border-radius: var(--radius-card-sm);
-  background: linear-gradient(160deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  background: linear-gradient(160deg, var(--course-surface-strong, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1))) 0%, var(--course-surface, var(--surface-1)) 100%);
   padding: 0.8rem 0.9rem;
   text-align: left;
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--course-accent, var(--accent-text)) 9%, transparent);
+  box-shadow: 0 12px 28px var(--course-shadow, color-mix(in srgb, var(--course-accent, var(--accent-text)) 9%, transparent));
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -1454,6 +1486,12 @@ onMounted(() => {
 
 .timeline-item.course {
   background: linear-gradient(160deg, color-mix(in srgb, var(--timeline-accent) 9%, var(--surface-1)) 0%, var(--surface-1) 100%);
+}
+
+.week-list-course__meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .day-empty {
