@@ -343,25 +343,48 @@ function deleteAccount(id: string) {
       </section>
 
       <section class="settings-group">
+        <h3 class="group-title">资料与同步</h3>
+        <div class="settings-card">
+          <div class="setting-item readonly-item">
+            <div class="setting-info setting-info-start setting-info-spread">
+              <div class="setting-text setting-text-full">
+                <span class="setting-name">资料来源说明</span>
+                <span class="setting-desc">资料页默认会自动刷新，并按“智云课堂本周优先 + 当前学期课程活动/作业附件”收口；只有切到“全部个人”时，才会展开当前账号已同步过的个人资料。</span>
+              </div>
+            </div>
+          </div>
+          <div class="setting-item readonly-item no-divider">
+            <div class="setting-info setting-info-start setting-info-spread">
+              <div class="setting-text setting-text-full">
+                <span class="setting-name">同步行为</span>
+                <span class="setting-desc">进入资料页时会在数据为空、缺少智云课堂结果或缓存超过 6 小时时自动刷新。手动按钮仍保留为兜底，不再是唯一同步入口。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+      <section class="settings-group">
         <h3 class="group-title">AI 与通知</h3>
         <div class="settings-card">
           <div class="setting-item readonly-item">
             <div class="setting-info setting-info-start setting-info-spread">
               <div class="setting-text setting-text-full">
-                <span class="setting-name">ZeroClaw Endpoint</span>
-                <span class="setting-desc">用于学业综合分析和后续资料联动分析，建议填写完整 HTTP 地址。</span>
+                <span class="setting-name">AI 网关 Endpoint</span>
+                <span class="setting-desc">默认推荐接你的 AI 网关；如已部署 ZeroClaw，也可直接兼容接入。后续会逐步让它读取成绩、任务、资料与时间信息，并联动页面跳转。</span>
                 <input
                   :value="zeroClawEndpoint"
                   type="url"
                   class="add-form-input integration-input"
-                  placeholder="https://your-zeroclaw-host/api/analyze"
+                  placeholder="https://your-ai-gateway/api/analyze"
                   @input="updateZeroClawEndpoint(($event.target as HTMLInputElement).value)"
                 />
                 <input
                   :value="zeroClawApiKey"
                   type="password"
                   class="add-form-input integration-input"
-                  placeholder="ZeroClaw API Key（可选）"
+                  placeholder="AI Gateway API Key（可选）"
                   @input="updateZeroClawApiKey(($event.target as HTMLInputElement).value)"
                 />
               </div>

@@ -437,16 +437,22 @@ fn calculate_gpa_preview(input: GpaPreviewInput) -> Result<Value, String> {
             continue;
         }
 
-        let current_grade = grade
-            .get("cj")
+        let kcdm = grade
+            .get("kcdm")
             .and_then(Value::as_str)
             .unwrap_or_default()
-            .trim()
             .to_string();
-        if ["待录", "缓考", "无效"].contains(&current_grade.as_str()) {
-            if let Some(score) = simulated.get(&xkkh) {
-                apply_simulated_score(&mut grade, *score);
-            }
+        let retake_key = grade
+            .get("retakeKey")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if let Some(score) = simulated
+            .get(&xkkh)
+            .or_else(|| simulated.get(&kcdm))
+            .or_else(|| simulated.get(&retake_key))
+        {
+            apply_simulated_score(&mut grade, *score);
         }
 
         apply_course_mapping(&mut grade, &course_mappings);

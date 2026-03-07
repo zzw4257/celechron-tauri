@@ -39,10 +39,10 @@ const remoteItems = ref<RemoteMaterialAsset[]>([]);
 const warnings = ref<string[]>([]);
 const lastSyncedAt = ref<number | null>(null);
 const weekLabel = ref('');
-const defaultScope = ref<'current-week' | 'all'>('current-week');
+const defaultScope = ref<'current-week' | 'current-term' | 'all'>('current-week');
 const sourcePriority = ref<string[]>(['classroom', 'activity', 'homework']);
 const courseFilters = ref<{ id: string; label: string; count: number }[]>([]);
-const selectedScope = ref<'current-week' | 'all'>('current-week');
+const selectedScope = ref<'current-week' | 'current-term' | 'all'>('current-week');
 const selectedSource = ref('all');
 const selectedCourse = ref('all');
 const search = ref('');
@@ -97,6 +97,8 @@ function sourceRank(type: string) {
 function shouldAutoSync(payload: MaterialsPayload) {
   if (!payload.lastSyncedAt) return true;
   if (!Array.isArray(payload.remoteItems) || payload.remoteItems.length === 0) return true;
+  const age = Math.floor(Date.now() / 1000) - payload.lastSyncedAt;
+  if (age >= 6 * 3600) return true;
   return !payload.remoteItems.some((item) => item.sourceType === 'classroom');
 }
 
@@ -106,7 +108,7 @@ function hydrate(payload: MaterialsPayload, resetFilters = false) {
   warnings.value = Array.isArray(payload.warnings) ? payload.warnings : [];
   lastSyncedAt.value = typeof payload.lastSyncedAt === 'number' ? payload.lastSyncedAt : null;
   weekLabel.value = payload.weekLabel || '';
-  defaultScope.value = payload.defaultScope === 'all' ? 'all' : 'current-week';
+  defaultScope.value = payload.defaultScope === 'all' ? 'all' : payload.defaultScope === 'current-term' ? 'current-term' : 'current-week';
   sourcePriority.value = Array.isArray(payload.sourcePriority) && payload.sourcePriority.length
     ? payload.sourcePriority
     : ['classroom', 'activity', 'homework'];
@@ -117,7 +119,7 @@ function hydrate(payload: MaterialsPayload, resetFilters = false) {
     ? 'classroom'
     : sourcePriority.value.find((item) => availableSources.has(item)) || 'all';
 
-  if (resetFilters || !['current-week', 'all'].includes(selectedScope.value)) {
+  if (resetFilters || !['current-week', 'current-term', 'all'].includes(selectedScope.value)) {
     selectedScope.value = defaultScope.value;
   }
   if (resetFilters || (selectedSource.value !== 'all' && !availableSources.has(selectedSource.value))) {
@@ -165,7 +167,9 @@ const courseOptions = computed(() => [
 const visibleRemoteItems = computed(() => {
   const keyword = search.value.trim().toLowerCase();
   return [...remoteItems.value]
-    .filter((item) => selectedScope.value === 'all' || item.weekBucket === 'current')
+    .filter((item) => selectedScope.value === 'all' || (selectedScope.value === 'current-week'
+      ? item.weekBucket === 'current'
+      : item.weekBucket === 'current' || item.weekBucket === 'other'))
     .filter((item) => selectedSource.value === 'all' || item.sourceType === selectedSource.value)
     .filter((item) => selectedCourse.value === 'all' || item.courseName === selectedCourse.value)
     .filter((item) => {
@@ -195,10 +199,11 @@ const remoteCourseGroups = computed(() => {
     .map(([courseName, entries]) => ({
       courseName,
       currentCount: entries.filter((item) => item.weekBucket === 'current').length,
+      termCount: entries.filter((item) => item.weekBucket === 'current' || item.weekBucket === 'other').length,
       downloadedCount: entries.filter((item) => item.downloaded).length,
       entries,
     }))
-    .sort((left, right) => right.currentCount - left.currentCount || right.entries.length - left.entries.length || left.courseName.localeCompare(right.courseName));
+    .sort((left, right) => right.currentCount - left.currentCount || right.termCount - left.termCount || right.entries.length - left.entries.length || left.courseName.localeCompare(right.courseName));
 });
 
 const visibleLocalItems = computed(() => {
@@ -250,15 +255,26 @@ const previewUrl = computed(() => {
 
 const summaryStats = computed(() => ({
   currentWeek: remoteItems.value.filter((item) => item.weekBucket === 'current').length,
+  currentTerm: remoteItems.value.filter((item) => item.weekBucket === 'current' || item.weekBucket === 'other').length,
   classroom: remoteItems.value.filter((item) => item.sourceType === 'classroom').length,
   cached: items.value.length,
   remote: remoteItems.value.length,
 }));
 
+const classroomMissing = computed(() => summaryStats.value.classroom === 0);
+const scopeSubtitle = computed(() => {
+  if (selectedScope.value === 'current-week') return '优先显示本周课堂资料与本周新附件。';
+  if (selectedScope.value === 'current-term') return '仅展示当前学期窗口内的远程资料。';
+  return '这里只展开当前账号已同步过的个人资料，不代表平台公共全量。';
+});
+
 const warningSummary = computed(() => {
   if (warnings.value.length === 0) return '';
+  if (classroomMissing.value && warnings.value.some((item) => item.includes('智云课堂'))) {
+    return '智云课堂本次未成功返回资料，当前先展示学在浙大课程活动与作业附件；稍后会继续自动重试。';
+  }
   if (warnings.value.length === 1) return warnings.value[0];
-  return `已合并 ${warnings.value.length} 条同步提示，优先保留可用资料结果。`;
+  return `已合并 ${warnings.value.length} 条同步提示，资料仍按当前学期与你已选课程优先展示。`;
 });
 
 const activePreviewTitle = computed(() => {
@@ -462,7 +478,7 @@ async function analyzeSelected() {
     });
     aiMarkdown.value = env.data.markdown || '';
     if (!aiMarkdown.value) {
-      aiError.value = 'ZeroClaw 已响应，但没有返回可展示内容。';
+      aiError.value = 'AI 网关已响应，但没有返回可展示内容。';
     }
   } catch (error: any) {
     aiError.value = error?.message || String(error);
@@ -512,12 +528,13 @@ onMounted(() => {
     <header class="page-header">
       <div>
         <h1>资料</h1>
-        <p class="page-subtitle">默认按本周与智云课堂优先收口，远程资料按课程分组展示。</p>
+        <p class="page-subtitle">默认按本周与本学期收口；切到“全部个人”时，也只展开当前账号已同步过的个人资料，不是平台公共全量。</p>
       </div>
       <div class="materials-header-actions">
         <ActionPill tone="accent" :disabled="isSyncing" @click="syncRemote({ resetFilters: false })">
-          {{ isSyncing ? '同步中…' : '同步远程资料' }}
+          {{ isSyncing ? '同步中…' : '同步并刷新资料' }}
         </ActionPill>
+        <ActionPill @click="navigateToSettings">抓取规则</ActionPill>
         <ActionPill @click="showAddForm = !showAddForm">{{ showAddForm ? '收起添加' : '手动添加' }}</ActionPill>
       </div>
     </header>
@@ -527,6 +544,9 @@ onMounted(() => {
     </StatusBanner>
     <StatusBanner v-else-if="warningSummary" tone="warning" title="同步提示">
       {{ warningSummary }}
+    </StatusBanner>
+    <StatusBanner v-else-if="classroomMissing" tone="info" title="智云课堂暂缺">
+      当前只显示学在浙大课程活动与作业附件；“全部个人”也只会展开当前账号已经同步进索引的个人资料。
     </StatusBanner>
     <StatusBanner v-if="actionStatus" tone="success" title="完成">
       {{ actionStatus }}
@@ -539,16 +559,18 @@ onMounted(() => {
     <template v-else>
       <div class="materials-stats">
         <InlineStat label="本周可看" :value="String(summaryStats.currentWeek)" :hint="weekLabel || '未分周'" emphasis />
-        <InlineStat label="智云课堂" :value="String(summaryStats.classroom)" hint="优先来源" />
+        <InlineStat label="本学期资料" :value="String(summaryStats.currentTerm)" hint="已过滤旧学期课程活动" />
         <InlineStat label="已缓存" :value="String(summaryStats.cached)" hint="本地可离线" />
-        <InlineStat label="远程总数" :value="String(summaryStats.remote)" :hint="formatTime(lastSyncedAt)" />
+        <InlineStat label="全部个人" :value="String(summaryStats.remote)" hint="当前账号个人资料" />
       </div>
 
       <SectionCard dense title="筛选与范围" subtitle="减少一股脑堆叠，先看本周、再按课程收束。">
         <div class="filters-layout">
+          <span class="helper-text filters-note">智云课堂优先按本周入场；课程活动与作业附件默认只保留当前学期窗口；“全部个人” 也只代表当前账号自己的同步资料，不是平台公共全量。</span>
           <SegmentedFilter v-model="selectedScope" :options="[
             { value: 'current-week', label: weekLabel ? `本周 ${weekLabel}` : '本周' },
-            { value: 'all', label: '全部' },
+            { value: 'current-term', label: '本学期' },
+            { value: 'all', label: '全部个人' },
           ]" />
           <SegmentedFilter v-model="selectedSource" :options="sourceOptions" />
           <select v-model="selectedCourse" class="select-field filters-select">
@@ -572,9 +594,9 @@ onMounted(() => {
 
       <div class="materials-layout">
         <div class="materials-main">
-          <SectionCard title="远程资料" :subtitle="selectedScope === 'current-week' ? '优先显示当前周条目；本地缓存区下沉到次级。' : '按课程分组查看全部远程资料。'">
+          <SectionCard title="远程资料" :subtitle="scopeSubtitle">
             <div v-if="remoteCourseGroups.length === 0" class="state-card">
-              当前筛选下没有远程资料。先点“同步远程资料”，或切换到全部范围查看。
+              当前筛选下没有远程资料。先点“同步并刷新资料”，或切到“全部个人”查看当前账号更完整的个人课程附件。
             </div>
 
             <div v-else class="course-groups">
@@ -582,7 +604,7 @@ onMounted(() => {
                 <header class="course-group__header">
                   <div>
                     <h3>{{ group.courseName }}</h3>
-                    <p>{{ group.currentCount }} 份本周可看 · {{ group.downloadedCount }} 份已缓存</p>
+                    <p>{{ selectedScope === 'current-week' ? `${group.currentCount} 份本周可看` : selectedScope === 'current-term' ? `${group.termCount} 份本学期可看` : `${group.entries.length} 份历史资料` }} · {{ group.downloadedCount }} 份已缓存</p>
                   </div>
                   <span class="badge">{{ group.entries.length }} 项</span>
                 </header>
@@ -744,6 +766,11 @@ onMounted(() => {
 
 .filters-layout {
   align-items: stretch;
+}
+
+.filters-note {
+  flex: 1 1 100%;
+  display: block;
 }
 
 .filters-select {

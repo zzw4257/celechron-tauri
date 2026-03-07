@@ -2,7 +2,7 @@ import type { TermDescriptor } from '../utils/semester';
 
 export type MetaSource = 'network' | 'cache' | 'unknown';
 export type RetakePolicy = 'first' | 'highest';
-export type MaterialsScope = 'current-week' | 'all';
+export type MaterialsScope = 'current-week' | 'current-term' | 'all';
 export type MaterialSourceType = 'classroom' | 'activity' | 'homework';
 export type MaterialWeekBucket = 'current' | 'other' | 'unknown';
 

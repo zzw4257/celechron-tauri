@@ -1,7 +1,8 @@
 use crate::classroom::{ClassroomSession, ClassroomSubject};
 use crate::courses;
+use crate::term;
 use crate::zjuam::AppState;
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Weekday};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -108,6 +109,80 @@ fn now_ts() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MaterialSyncWindow {
+    term_start_ts: u64,
+    week_start_ts: u64,
+    week_end_ts: u64,
+}
+
+fn midnight_ts(date: NaiveDate) -> u64 {
+    date.and_hms_opt(0, 0, 0)
+        .and_then(|value| Local.from_local_datetime(&value).single())
+        .map(|value| value.timestamp().max(0) as u64)
+        .unwrap_or_default()
+}
+
+fn monday_of(date: NaiveDate) -> NaiveDate {
+    let diff = match date.weekday() {
+        Weekday::Mon => 0,
+        Weekday::Tue => 1,
+        Weekday::Wed => 2,
+        Weekday::Thu => 3,
+        Weekday::Fri => 4,
+        Weekday::Sat => 5,
+        Weekday::Sun => 6,
+    };
+    date - Duration::days(diff)
+}
+
+fn current_term_descriptor(today: NaiveDate) -> term::TermDescriptor {
+    let year = today.year();
+    let month = today.month();
+    if (2..=8).contains(&month) {
+        term::descriptor_from_parts((year - 1).to_string(), "2")
+    } else {
+        let start_year = if month == 1 { year - 1 } else { year };
+        term::descriptor_from_parts(start_year.to_string(), "1")
+    }
+}
+
+fn fallback_term_start(term: &term::TermDescriptor) -> NaiveDate {
+    let year = term
+        .year
+        .parse::<i32>()
+        .unwrap_or_else(|_| Local::now().date_naive().year());
+    let base = if term.academic_semester == "2" {
+        NaiveDate::from_ymd_opt(year + 1, 2, 24)
+    } else {
+        NaiveDate::from_ymd_opt(year, 9, 9)
+    }
+    .unwrap_or_else(|| Local::now().date_naive());
+    monday_of(base)
+}
+
+async fn resolve_material_sync_window(app: &AppHandle) -> MaterialSyncWindow {
+    let today = Local::now().date_naive();
+    let current_term = current_term_descriptor(today);
+    let config = term::load_term_time_config(app, &current_term).await;
+    let term_start = config
+        .start_date
+        .as_deref()
+        .and_then(|value| {
+            NaiveDate::parse_from_str(value.get(..10).unwrap_or(value), "%Y-%m-%d").ok()
+        })
+        .map(monday_of)
+        .unwrap_or_else(|| fallback_term_start(&current_term));
+    let week_start = monday_of(today);
+    let week_end = week_start + Duration::days(7);
+
+    MaterialSyncWindow {
+        term_start_ts: midnight_ts(term_start.checked_sub_signed(Duration::days(14)).unwrap_or(term_start)),
+        week_start_ts: midnight_ts(week_start),
+        week_end_ts: midnight_ts(week_end),
+    }
 }
 
 fn materials_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -494,6 +569,7 @@ fn normalize_learning_upload(
     course_name: &str,
     source_type: &str,
     upload: &Value,
+    window: &MaterialSyncWindow,
 ) -> Option<RemoteMaterialAsset> {
     let upload_id = upload.get("id").and_then(Value::as_i64)?;
     let reference_id = upload
@@ -523,6 +599,14 @@ fn normalize_learning_upload(
     .iter()
     .find_map(|key| upload.get(*key).and_then(parse_timestamp_value))
     .unwrap_or_else(now_ts);
+    if updated_at < window.term_start_ts {
+        return None;
+    }
+    let week_bucket = if updated_at >= window.week_start_ts && updated_at < window.week_end_ts {
+        "current"
+    } else {
+        "other"
+    };
     Some(RemoteMaterialAsset {
         id: format!("learning:{source_type}:{course_id}:{upload_id}:{reference_id}"),
         course_id,
@@ -540,7 +624,7 @@ fn normalize_learning_upload(
         updated_at,
         downloaded: false,
         local_relative_path: None,
-        week_bucket: "unknown".to_string(),
+        week_bucket: week_bucket.to_string(),
         preview_image_urls: Vec::new(),
         remote_ref: json!({
             "kind": "learning",
@@ -552,9 +636,45 @@ fn normalize_learning_upload(
     })
 }
 
-fn normalize_classroom_subject(subject: ClassroomSubject, updated_at: u64) -> RemoteMaterialAsset {
+fn classroom_subject_timestamp(subject: &ClassroomSubject) -> Option<u64> {
+    let token = subject
+        .sub_name
+        .split(|ch: char| !ch.is_ascii_digit() && ch != '-' && ch != '/')
+        .find(|part| part.len() >= 10)?;
+    let normalized = token.replace('/', "-");
+    let date = NaiveDate::parse_from_str(
+        normalized.get(..10).unwrap_or(normalized.as_str()),
+        "%Y-%m-%d",
+    )
+    .ok()?;
+    Some(midnight_ts(date))
+}
+
+fn normalize_classroom_subject(
+    subject: ClassroomSubject,
+    window: &MaterialSyncWindow,
+    synced_at: u64,
+) -> Option<RemoteMaterialAsset> {
+    let dated_updated_at = classroom_subject_timestamp(&subject);
+    if subject.week_bucket != "current" {
+        let Some(ts) = dated_updated_at else {
+            return None;
+        };
+        if ts < window.term_start_ts {
+            return None;
+        }
+    }
+
+    let updated_at = dated_updated_at.unwrap_or(synced_at);
+    let week_bucket = if subject.week_bucket == "current"
+        || (updated_at >= window.week_start_ts && updated_at < window.week_end_ts)
+    {
+        "current"
+    } else {
+        "other"
+    };
     let file_name = format!("{}.html", sanitize_segment(&subject.sub_name));
-    RemoteMaterialAsset {
+    Some(RemoteMaterialAsset {
         id: format!("classroom:{}:{}", subject.course_id, subject.sub_id),
         course_id: subject.course_id,
         course_name: subject.course_name.clone(),
@@ -574,7 +694,7 @@ fn normalize_classroom_subject(subject: ClassroomSubject, updated_at: u64) -> Re
         updated_at,
         downloaded: false,
         local_relative_path: None,
-        week_bucket: subject.week_bucket,
+        week_bucket: week_bucket.to_string(),
         preview_image_urls: subject.ppt_image_urls.clone(),
         remote_ref: json!({
             "kind": "classroom",
@@ -583,7 +703,7 @@ fn normalize_classroom_subject(subject: ClassroomSubject, updated_at: u64) -> Re
             "lecturerName": subject.lecturer_name,
             "pptImageUrls": subject.ppt_image_urls,
         }),
-    }
+    })
 }
 
 fn build_material_meta(
@@ -699,6 +819,8 @@ fn build_materials_payload(items: Vec<MaterialAsset>, mut index: RemoteMaterials
     index.items = attach_download_status(index.items, &items);
     let default_scope = if index.items.iter().any(|item| item.week_bucket == "current") {
         "current-week"
+    } else if index.items.iter().any(|item| item.week_bucket == "other") {
+        "current-term"
     } else {
         "all"
     };
@@ -739,6 +861,7 @@ pub fn fetch_materials(app: &AppHandle) -> Result<Value, String> {
 pub async fn sync_materials_index(app: &AppHandle, state: &AppState) -> Result<Value, String> {
     let root = materials_root(app)?;
     let local_items = read_materials(&root)?;
+    let window = resolve_material_sync_window(app).await;
     let courses = courses::get_learning_courses(state).await?;
     let mut warnings = Vec::<String>::new();
     let mut remote_items = Vec::<RemoteMaterialAsset>::new();
@@ -758,9 +881,13 @@ pub async fn sync_materials_index(app: &AppHandle, state: &AppState) -> Result<V
         match courses::get_course_activity_uploads(state, course_id).await {
             Ok(uploads) => {
                 for upload in uploads {
-                    if let Some(item) =
-                        normalize_learning_upload(course_id, &course_name, "activity", &upload)
-                    {
+                    if let Some(item) = normalize_learning_upload(
+                        course_id,
+                        &course_name,
+                        "activity",
+                        &upload,
+                        &window,
+                    ) {
                         let upload_id = item
                             .remote_ref
                             .get("uploadId")
@@ -783,9 +910,13 @@ pub async fn sync_materials_index(app: &AppHandle, state: &AppState) -> Result<V
         match courses::get_course_homework_uploads(state, course_id).await {
             Ok(uploads) => {
                 for upload in uploads {
-                    if let Some(item) =
-                        normalize_learning_upload(course_id, &course_name, "homework", &upload)
-                    {
+                    if let Some(item) = normalize_learning_upload(
+                        course_id,
+                        &course_name,
+                        "homework",
+                        &upload,
+                        &window,
+                    ) {
                         let upload_id = item
                             .remote_ref
                             .get("uploadId")
@@ -814,7 +945,9 @@ pub async fn sync_materials_index(app: &AppHandle, state: &AppState) -> Result<V
                 }
                 let updated_at = now_ts();
                 for subject in result.items {
-                    remote_items.push(normalize_classroom_subject(subject, updated_at));
+                    if let Some(item) = normalize_classroom_subject(subject, &window, updated_at) {
+                        remote_items.push(item);
+                    }
                 }
                 let mut index = RemoteMaterialsIndex {
                     version: REMOTE_INDEX_VERSION,
@@ -1126,4 +1259,70 @@ mod tests {
             Some("高等数学/lecture1.pdf")
         );
     }
+#[test]
+fn classroom_subject_timestamp_extracts_date_from_title() {
+    let subject = ClassroomSubject {
+        course_id: 1,
+        sub_id: 2,
+        course_name: "编译原理".to_string(),
+        sub_name: "2026-03-03第6-8节".to_string(),
+        lecturer_name: "教师".to_string(),
+        ppt_image_urls: Vec::new(),
+        week_bucket: "unknown".to_string(),
+    };
+
+    assert_eq!(
+        classroom_subject_timestamp(&subject),
+        NaiveDate::from_ymd_opt(2026, 3, 3).map(midnight_ts)
+    );
+}
+
+#[test]
+fn normalize_classroom_subject_discards_pre_term_unknown_items() {
+    let subject = ClassroomSubject {
+        course_id: 1,
+        sub_id: 2,
+        course_name: "说文解字".to_string(),
+        sub_name: "2024-09-25第1-2节".to_string(),
+        lecturer_name: "教师".to_string(),
+        ppt_image_urls: vec!["https://example.com/1.png".to_string()],
+        week_bucket: "unknown".to_string(),
+    };
+    let window = MaterialSyncWindow {
+        term_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 2, 10).unwrap()),
+        week_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 2).unwrap()),
+        week_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()),
+    };
+
+    assert!(normalize_classroom_subject(subject, &window, midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 7).unwrap())).is_none());
+}
+
+#[test]
+fn normalize_classroom_subject_marks_current_term_items_as_other() {
+    let subject = ClassroomSubject {
+        course_id: 1,
+        sub_id: 2,
+        course_name: "编译原理".to_string(),
+        sub_name: "2026-02-24第1-2节".to_string(),
+        lecturer_name: "教师".to_string(),
+        ppt_image_urls: vec!["https://example.com/1.png".to_string()],
+        week_bucket: "unknown".to_string(),
+    };
+    let window = MaterialSyncWindow {
+        term_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 2, 10).unwrap()),
+        week_start_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 2).unwrap()),
+        week_end_ts: midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()),
+    };
+
+    let item = normalize_classroom_subject(
+        subject,
+        &window,
+        midnight_ts(NaiveDate::from_ymd_opt(2026, 3, 7).unwrap()),
+    )
+    .expect("current-term classroom item should be kept");
+
+    assert_eq!(item.week_bucket, "other");
+    assert_eq!(item.updated_at, midnight_ts(NaiveDate::from_ymd_opt(2026, 2, 24).unwrap()));
+}
+
 }

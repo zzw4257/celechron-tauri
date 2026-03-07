@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
+import ActionPill from '../ui/ActionPill.vue';
+import InlineStat from '../ui/InlineStat.vue';
 import SectionCard from '../ui/SectionCard.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import { fetchTimetable, fetchTodos } from '../../services/api';
@@ -22,12 +24,7 @@ const items = ref<FlowItem[]>([]);
 const isOffline = ref(false);
 const errorMsg = ref('');
 
-const FLOW_TONES = [
-  'var(--accent-text)',
-  'var(--warning-text)',
-  'var(--success-text)',
-  'var(--danger-text)',
-];
+const FLOW_TONES = ['#0f7aa9', '#1a8b4f', '#a85516', '#be123c', '#2563eb', '#0f766e'];
 
 const { accountScope, manualSemesterAnchors, timeConfigMode } = usePreferences();
 
@@ -42,6 +39,12 @@ const groupedItems = computed(() => {
   return [...groups.entries()].map(([label, entries]) => ({ label, entries }));
 });
 
+const summary = computed(() => ({
+  total: items.value.length,
+  courses: items.value.filter((item) => item.type === 'course').length,
+  tasks: items.value.filter((item) => item.type === 'task').length,
+}));
+
 function buildDateLabel(date: Date): string {
   const today = startOfLocalDay(new Date());
   const current = startOfLocalDay(date);
@@ -55,6 +58,10 @@ function normalizeTodoTime(value?: string) {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function openCalendar() {
+  window.dispatchEvent(new CustomEvent('celechron:navigate', { detail: { tab: 'calendar' } }));
 }
 
 async function loadFlow() {
@@ -89,7 +96,7 @@ async function loadFlow() {
         subtitle: todo.courseName || todo.course_name || '学在浙大',
         timeLabel: `${buildDateLabel(dueAt)} ${dueAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
         timeMs: dueMs,
-        tone: 'var(--danger-text)',
+        tone: '#be123c',
       });
     }
 
@@ -121,7 +128,7 @@ async function loadFlow() {
           subtitle: occurrence.session.location || '地点待定',
           timeLabel: `${buildDateLabel(startAt)} ${occurrence.startSlot?.start || startAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`,
           timeMs: startMs,
-          tone: courseTones.get(colorKey) || 'var(--accent-text)',
+          tone: courseTones.get(colorKey) || FLOW_TONES[0],
         });
       }
     }
@@ -144,9 +151,12 @@ watch(accountScope, loadFlow);
     <header class="page-header">
       <div>
         <h1>接下来</h1>
-        <p class="page-subtitle">统一消费 7 天内的任务和课表事件。</p>
+        <p class="page-subtitle">未来 7 天用同一条时间线汇总课程与截止任务，保留悬浮感而不过度装饰。</p>
       </div>
-      <span class="badge" :class="isOffline ? 'warning' : 'accent'">{{ isOffline ? '缓存模式' : '实时数据' }}</span>
+      <div class="flow-header-actions">
+        <ActionPill tone="accent" @click="openCalendar">打开课表</ActionPill>
+        <span class="badge" :class="isOffline ? 'warning' : 'accent'">{{ isOffline ? '缓存模式' : '实时数据' }}</span>
+      </div>
     </header>
 
     <StatusBanner v-if="errorMsg" tone="danger" title="拉取失败">
@@ -157,99 +167,120 @@ watch(accountScope, loadFlow);
       <div class="state-card">请稍候，正在整理课表与截止项。</div>
     </SectionCard>
 
-    <SectionCard v-else-if="items.length === 0" title="近期为空" subtitle="未来 7 天暂时没有课程或截止任务。">
-      <div class="state-card">当前时段没有需要提醒的安排。</div>
-    </SectionCard>
+    <template v-else>
+      <div class="flow-stats">
+        <InlineStat label="总安排" :value="String(summary.total)" emphasis />
+        <InlineStat label="课程" :value="String(summary.courses)" />
+        <InlineStat label="任务" :value="String(summary.tasks)" />
+      </div>
 
-    <div v-else class="flow-groups">
-      <SectionCard v-for="group in groupedItems" :key="group.label" :title="group.label" dense>
-        <div class="flow-list">
-          <article v-for="item in group.entries" :key="item.id" class="flow-item">
-            <div class="flow-item__marker" :style="{ background: item.tone }"></div>
-            <div class="flow-item__main">
-              <div class="flow-item__head">
-                <strong>{{ item.title }}</strong>
+      <SectionCard v-if="items.length === 0" title="近期为空" subtitle="未来 7 天暂时没有课程或截止任务。">
+        <div class="state-card">当前时段没有需要提醒的安排。</div>
+      </SectionCard>
+
+      <div v-else class="flow-groups">
+        <SectionCard v-for="group in groupedItems" :key="group.label" :title="group.label" dense>
+          <div class="flow-list">
+            <article
+              v-for="item in group.entries"
+              :key="item.id"
+              class="flow-card"
+              :style="{ '--flow-tone': item.tone }"
+            >
+              <div class="flow-card__head">
                 <span class="badge" :class="item.type === 'task' ? 'danger' : 'accent'">
                   {{ item.type === 'task' ? '任务' : '课程' }}
                 </span>
+                <time>{{ item.timeLabel }}</time>
               </div>
+              <strong>{{ item.title }}</strong>
               <p>{{ item.subtitle }}</p>
-            </div>
-            <time class="flow-item__time">{{ item.timeLabel }}</time>
-          </article>
-        </div>
-      </SectionCard>
-    </div>
+            </article>
+          </div>
+        </SectionCard>
+      </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.flow-view {
-  gap: 1rem;
-}
-
+.flow-view,
 .flow-groups,
 .flow-list {
   display: flex;
   flex-direction: column;
+  gap: 1rem;
+}
+
+.flow-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.flow-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
-.flow-item {
+.flow-list {
   display: grid;
-  grid-template-columns: 0.5rem minmax(0, 1fr) auto;
-  gap: 0.85rem;
-  align-items: center;
-  padding: 0.9rem 0.4rem;
-  border-bottom: 1px solid var(--border-subtle);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.flow-item:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
+.flow-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card-sm);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--flow-tone) 12%, var(--surface-1)) 0%, var(--surface-2) 100%);
+  padding: 1rem;
+  min-height: 8.2rem;
+  box-shadow: var(--shadow-soft);
 }
 
-.flow-item__marker {
-  width: 0.5rem;
-  height: 100%;
-  min-height: 3.4rem;
-  border-radius: var(--radius-pill);
+.flow-card::before {
+  content: '';
+  position: absolute;
+  inset: auto -2rem -2.5rem auto;
+  width: 8rem;
+  height: 8rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--flow-tone) 20%, transparent);
+  filter: blur(10px);
+  pointer-events: none;
 }
 
-.flow-item__main {
-  min-width: 0;
-}
-
-.flow-item__head {
+.flow-card__head {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
   justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
-.flow-item__head strong {
-  color: var(--text-primary);
-}
-
-.flow-item__main p,
-.flow-item__time {
-  margin: 0.2rem 0 0;
+.flow-card__head time,
+.flow-card p {
   color: var(--text-secondary);
 }
 
-.flow-item__time {
-  white-space: nowrap;
-  text-align: right;
+.flow-card strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  margin-bottom: 0.3rem;
 }
 
-@media (max-width: 720px) {
-  .flow-item {
-    grid-template-columns: 0.45rem minmax(0, 1fr);
-  }
+.flow-card p {
+  margin: 0;
+}
 
-  .flow-item__time {
-    grid-column: 2;
-    text-align: left;
+@media (max-width: 900px) {
+  .flow-stats,
+  .flow-list {
+    grid-template-columns: 1fr;
   }
 }
 </style>

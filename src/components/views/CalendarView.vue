@@ -495,6 +495,7 @@ onMounted(() => {
                   <p>{{ formatDayLabel(day.date) }}</p>
                 </div>
                 <div class="day-column__meta">
+                  <span class="badge" :class="day.courses.length ? 'accent' : ''">{{ day.courses.length }} 节</span>
                   <span v-if="day.isToday" class="badge accent">今天</span>
                   <span v-if="day.todos.length" class="badge danger">{{ day.todos.length }} 任务</span>
                   <span v-if="day.exams.length" class="badge warning">{{ day.exams.length }} 考试</span>
@@ -637,15 +638,16 @@ onMounted(() => {
 
 .week-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 0.75rem;
 }
 
 .day-column {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card-sm);
-  background: var(--surface-2);
-  padding: 0.8rem;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--accent-text) 8%, var(--surface-1)) 0%, var(--surface-2) 100%);
+  padding: 0.9rem;
+  box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -698,12 +700,12 @@ onMounted(() => {
 
 .course-card,
 .agenda-item {
-  border: 1px solid var(--border-subtle);
-  border-left: 4px solid var(--course-accent, var(--accent-text));
+  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 26%, var(--border-subtle));
   border-radius: var(--radius-card-sm);
-  background: var(--surface-1);
-  padding: 0.75rem 0.85rem;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  padding: 0.8rem 0.9rem;
   text-align: left;
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, transparent);
 }
 
 .course-card {
@@ -724,6 +726,12 @@ onMounted(() => {
   border-radius: var(--radius-card-sm);
   background: var(--surface-1);
   padding: 0.9rem;
+}
+
+@media (max-width: 1440px) {
+  .week-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1100px) {
