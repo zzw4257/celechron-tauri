@@ -8,7 +8,7 @@ import StatusBanner from '../ui/StatusBanner.vue';
 import type { GpaSummary, ScholarPayload, ScholarSemester } from '../../types/api';
 import { calculateGpaPreview, fetchScholarData, fetchTodos, runAiAnalysis } from '../../services/api';
 import { usePreferences } from '../../composables/usePreferences';
-import { formatTermDisplayName } from '../../utils/semester';
+import { formatTermDisplayName, parseTermDescriptor } from '../../utils/semester';
 
 const EMPTY_GPA: GpaSummary = {
   fivePoint: 0,
@@ -46,7 +46,7 @@ const customMode = ref(false);
 const customLoading = ref(false);
 const customPreview = ref<GpaSummary | null>(null);
 const customScores = ref<Record<string, string>>({});
-const simulationScope = ref<'recent-window' | 'selected-semester' | 'current-term'>('recent-window');
+const simulationScope = ref<'carry-forward' | 'selected-semester' | 'current-term'>('carry-forward');
 
 function navigateToSettings() {
   window.dispatchEvent(new CustomEvent('celechron:navigate', { detail: { tab: 'option' } }));
@@ -88,6 +88,18 @@ function isPendingScoreText(value: string) {
 function isDeferredScoreText(value: string) {
   const normalized = value.replace(/\s+/g, '');
   return normalized.includes('缓考') || normalized.includes('待录') || normalized.includes('未录');
+}
+
+function termRankFromName(name?: string | null) {
+    const match = /^(\d{4})-(\d{4})-(\d+)$/.exec(String(name || '').trim());
+  if (!match) return -1;
+  const year = Number(match[1]);
+  const semester = Number(match[3] === '2' || match[3] === '12' ? 2 : 1);
+  return year * 10 + semester;
+}
+
+function sameTermName(left?: string | null, right?: string | null) {
+  return String(left || '').trim() !== '' && String(left || '').trim() === String(right || '').trim();
 }
 
 const majorCourseIds = computed(() => new Set(scholar.value?.majorCourseIds || []));
@@ -221,7 +233,6 @@ const currentTermCourseRows = computed(() => {
   }));
 });
 
-const lastFinishedSemester = computed(() => semesters.value[0] || null);
 const lastFinishedRows = computed(() => {
   const current = lastFinishedSemester.value;
   if (!current) return [];
@@ -262,20 +273,44 @@ const simulationRows = computed(() => {
   return [...map.values()];
 });
 
-const simulationSummaryBase = computed(() => {
-  if (simulationScope.value === 'selected-semester') return semesterSummary.value;
-  if (simulationScope.value === 'recent-window') {
-    return lastFinishedSemester.value?.gpaByPolicy?.[retakePolicy.value] || lastFinishedSemester.value?.gpaByPolicy?.first || EMPTY_GPA;
+const previewBaseGrades = computed(() => {
+  if (simulationScope.value === 'selected-semester') {
+    return gradeRows.value.map((row) => ({ ...row.raw, xkkh: String(row.raw?.xkkh || row.id) }));
   }
-  return EMPTY_GPA;
+
+  const transcript = Array.isArray(scholar.value?.transcript)
+    ? scholar.value!.transcript.map((grade: any) => ({ ...grade, xkkh: String(grade.xkkh || `${grade.kcdm || grade.kcmc || 'course'}-${grade.xnm || ''}-${grade.xqm || ''}`) }))
+    : [];
+  const seen = new Set(transcript.map((grade: any) => String(grade.xkkh || grade.kcdm || grade.kcmc || '')));
+  const syntheticCurrent = currentTermCourseRows.value
+    .map((row) => ({ ...row.raw, xkkh: String(row.raw?.xkkh || row.id) }))
+    .filter((row) => {
+      const key = String(row.xkkh || row.kcdm || row.kcmc || '');
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return [...transcript, ...syntheticCurrent];
 });
 
-const currentLearningTermLabel = computed(() => scholar.value?.currentCourses?.[0]?.term?.displayName || '当前在读学期');
+const simulationSummaryBase = computed(() => {
+  if (simulationScope.value === 'selected-semester') return semesterSummary.value;
+  return displayGpa.value;
+});
+
+const currentLearningTerm = computed(() => parseTermDescriptor(scholar.value?.currentCourses?.[0]?.term || null));
+const currentLearningTermName = computed(() => currentLearningTerm.value?.name || '');
+const currentLearningTermLabel = computed(() => currentLearningTerm.value?.displayName || scholar.value?.currentCourses?.[0]?.term?.displayName || '当前在读学期');
+const archivedSemesters = computed(() => [...semesters.value].sort((left, right) => termRankFromName(right.name) - termRankFromName(left.name)));
+const lastFinishedSemester = computed(() => {
+  const currentTermName = currentLearningTermName.value;
+  return archivedSemesters.value.find((item) => !sameTermName(item.name, currentTermName)) || archivedSemesters.value[0] || null;
+});
 
 const simulationScopeLabel = computed(() => {
-  if (simulationScope.value === 'selected-semester') return selectedSemester.value?.displayName || '所选学期';
-  if (simulationScope.value === 'current-term') return currentLearningTermLabel.value;
-  return `${lastFinishedSemester.value?.displayName || '最近已出分学期'} + ${currentLearningTermLabel.value}`;
+  if (simulationScope.value === 'selected-semester') return `${selectedSemester.value?.displayName || '所选学期'} 历史压力测试`;
+  if (simulationScope.value === 'current-term') return `${currentLearningTermLabel.value} 在读课程`;
+  return `${lastFinishedSemester.value?.displayName || '上一已归档学期'} + ${currentLearningTermLabel.value}`;
 });
 
 const customRows = computed(() => {
@@ -292,10 +327,10 @@ const customSupplementRows = computed(() => customRows.value.filter((row) => !ro
 const customFilledCount = computed(() => Object.values(customScores.value).filter((value) => String(value).trim() !== '' && Number.isFinite(Number(value))).length);
 const customGuideText = computed(() => {
   if (simulationScope.value === 'current-term') {
-    return `只模拟 ${currentLearningTermLabel.value} 仍在上的课程，适合给本学期尚未出分的课程预估最终均绩。`;
+    return `只模拟 ${currentLearningTermLabel.value} 仍在上的课程，输入后会直接回算到总 GPA 口径，更适合给本学期尚未出分课程预估最终结果。`;
   }
   if (customPriorityRows.value.length) {
-    return `默认覆盖“${simulationScopeLabel.value}”。优先给其中 ${customPriorityRows.value.length} 门缓考、待录、暂未出分或当前在读课程填写预估分；已出分课程只作为补充压力测试。`;
+    return `默认覆盖“${simulationScopeLabel.value}”。优先给其中 ${customPriorityRows.value.length} 门缓考、待录、暂未出分或当前在读课程填写预估分；计算结果会直接反映到总 GPA，对已出分课程只保留补充压力测试。`;
   }
   if (customRows.value.length) {
     return `${simulationScopeLabel.value} 当前没有待录、缓考或在读课程，DIY 区会退化成已出分课程的压力测试模式。`;
@@ -304,7 +339,7 @@ const customGuideText = computed(() => {
 });
 
 const predictionStats = computed(() => [
-  { label: '预测范围', value: simulationScopeLabel.value, hint: simulationScope.value === 'recent-window' ? '最近已出分学期 + 当前在读学期' : '' },
+  { label: '预测范围', value: simulationScopeLabel.value, hint: simulationScope.value === 'carry-forward' ? '上一已归档学期 + 当前在读学期' : (simulationScope.value === 'selected-semester' ? '仅回看所选历史学期' : '仅当前在读课程') },
   { label: '优先预估', value: `${customPriorityRows.value.length} 门`, hint: '缓考 / 待录 / 在读' },
   { label: '参考课程', value: `${customSupplementRows.value.length} 门`, hint: '已出分对照' },
   { label: '已填写', value: `${customFilledCount.value} 门`, hint: '输入后可直接生成预测' },
@@ -425,10 +460,7 @@ async function calculateCustomPreview() {
       return;
     }
 
-    const previewGrades = simulationRows.value.map((row) => ({
-      ...row.raw,
-      xkkh: String(row.raw?.xkkh || row.id),
-    }));
+    const previewGrades = previewBaseGrades.value;
 
     customPreview.value = await calculateGpaPreview({
       grades: previewGrades,
@@ -643,15 +675,15 @@ watch(accountScope, loadScholar);
         <div class="custom-grid">
           <div class="custom-list">
             <SegmentedFilter v-model="simulationScope" :options="[
-              { value: 'recent-window', label: '上学期+本学期' },
-              { value: 'current-term', label: '仅本学期' },
-              { value: 'selected-semester', label: '所选学期' },
+              { value: 'carry-forward', label: '承接上学期+本学期' },
+              { value: 'current-term', label: '仅本学期在修' },
+              { value: 'selected-semester', label: '所选历史学期' },
             ]" />
             <div class="prediction-strip">
               <InlineStat v-for="item in predictionStats" :key="item.label" :label="item.label" :value="item.value" :hint="item.hint" />
             </div>
             <StatusBanner title="预测重点" tone="info">{{ customGuideText }}</StatusBanner>
-            <div class="custom-scope-caption">上学期+本学期 = 最近已出分学期 + 当前在读学期；所选学期只用于回看历史学期做压力测试。</div>
+            <div class="custom-scope-caption">承接上学期+本学期 = 上一已归档学期 + 当前在读学期，默认用于补录、缓考和本学期课程预估；所选历史学期只用于回看压力测试。</div>
 
             <div v-if="customRows.length === 0" class="state-card">当前范围暂无可预测课程。</div>
 
@@ -724,7 +756,7 @@ watch(accountScope, loadScholar);
                 <small>{{ hideGpa ? '****' : item.delta }}</small>
               </div>
             </div>
-            <div v-else class="state-card">先给当前范围内的待录、缓考或在读课程输入预计分，再生成预测；右侧会直接对比当前值和预测值。</div>
+            <div v-else class="state-card">先给当前范围内的待录、缓考或在读课程输入预计分，再生成预测；默认会直接回算到总 GPA，对所选历史学期模式则只做该学期压力测试。</div>
 
             <div v-if="customPreview" class="comparison-list">
               <article v-for="item in comparisonRows" :key="item.label" class="comparison-row">
@@ -776,6 +808,21 @@ watch(accountScope, loadScholar);
 
 .scholar-summary-grid.secondary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.scholar-view :deep(.inline-stat) {
+  background: linear-gradient(180deg, color-mix(in srgb, white 86%, var(--surface-1)) 0%, var(--surface-2) 100%);
+  border-color: color-mix(in srgb, var(--border-subtle) 88%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 64%, transparent), var(--shadow-soft);
+}
+
+.scholar-view :deep(.inline-stat.emphasis) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 14%, white) 0%, color-mix(in srgb, var(--accent-text) 7%, var(--surface-1)) 100%);
+  border-color: color-mix(in srgb, var(--accent-border) 78%, var(--border-subtle));
+}
+
+.scholar-view :deep(.inline-stat__value) {
+  font-size: 1.18rem;
 }
 
 .scholar-two-col,
@@ -926,20 +973,22 @@ watch(accountScope, loadScholar);
 }
 
 .semester-chip {
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-2);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 90%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, white 84%, var(--surface-1)) 0%, color-mix(in srgb, var(--surface-2) 96%, transparent) 100%);
   color: var(--text-secondary);
   border-radius: var(--radius-pill);
   min-height: 2.35rem;
   padding: 0.55rem 0.95rem;
   white-space: nowrap;
   cursor: pointer;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 60%, transparent);
 }
 
 .semester-chip.active {
-  background: var(--surface-accent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 15%, white) 0%, color-mix(in srgb, var(--accent-text) 10%, var(--surface-1)) 100%);
   border-color: var(--accent-border);
-  color: var(--accent-text);
+  color: var(--text-primary);
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--accent-text) 9%, transparent);
 }
 
 .semester-stats {
@@ -948,6 +997,10 @@ watch(accountScope, loadScholar);
 
 .table-shell {
   overflow-x: auto;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 92%, transparent);
+  border-radius: calc(var(--radius-card-sm) + 2px);
+  background: linear-gradient(180deg, color-mix(in srgb, white 90%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 62%, transparent);
 }
 
 .scholar-table th,
@@ -955,8 +1008,19 @@ watch(accountScope, loadScholar);
   color: var(--text-primary);
 }
 
+.scholar-table thead th {
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, white 88%, var(--surface-1));
+  backdrop-filter: blur(8px);
+}
+
+.scholar-table tbody tr:nth-child(odd) {
+  background: color-mix(in srgb, var(--surface-2) 74%, white 26%);
+}
+
 .scholar-table tbody tr:hover {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--accent-text) 8%, var(--surface-1));
 }
 
 .scholar-table td:first-child {
@@ -975,14 +1039,15 @@ watch(accountScope, loadScholar);
 }
 
 .custom-group {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 90%, transparent);
   border-radius: var(--radius-card-sm);
-  background: var(--surface-2);
+  background: linear-gradient(180deg, color-mix(in srgb, white 88%, var(--surface-1)) 0%, var(--surface-2) 100%);
   padding: 0.85rem;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 62%, transparent);
 }
 
 .custom-group.secondary {
-  background: color-mix(in srgb, var(--surface-2) 92%, var(--surface-1));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 82%, white) 0%, color-mix(in srgb, var(--surface-2) 98%, var(--surface-1)) 100%);
 }
 
 .custom-group__head,
@@ -1042,10 +1107,11 @@ watch(accountScope, loadScholar);
 }
 
 .custom-preview-card {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 65%, var(--border-subtle));
   border-radius: var(--radius-card-sm);
-  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-text) 10%, var(--surface-1)) 0%, var(--surface-2) 100%);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-text) 14%, white) 0%, color-mix(in srgb, var(--accent-text) 7%, var(--surface-1)) 100%);
   padding: 0.9rem;
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--accent-text) 10%, transparent);
 }
 
 .custom-preview-card span,
