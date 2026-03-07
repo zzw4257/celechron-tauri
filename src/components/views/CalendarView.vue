@@ -778,9 +778,10 @@ onMounted(() => {
               :class="{ today: day.isToday, selected: day.isSelected }"
             >
               <button type="button" class="week-list-day__head" @click="selectedDateKey = day.dateKey">
-                <div>
-                  <strong>{{ day.label }}</strong>
-                  <p>{{ formatDayLabel(day.date) }}</p>
+                <div class="week-list-day__headline">
+                  <span class="week-list-day__weekday">{{ day.label }}</span>
+                  <strong>{{ formatDayLabel(day.date) }}</strong>
+                  <p>{{ day.courses.length ? `${day.courses.length} 节课程安排` : '今日暂无课程' }}</p>
                 </div>
                 <div class="week-list-day__badges">
                   <span class="badge" :class="day.courses.length ? 'accent' : ''">{{ day.courses.length }} 节</span>
@@ -1005,12 +1006,12 @@ onMounted(() => {
 
 .view-switch {
   display: inline-flex;
-  gap: 0.45rem;
-  padding: 0.35rem;
+  gap: 0.42rem;
+  padding: 0.32rem;
   border-radius: 999px;
-  border: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
-  box-shadow: var(--shadow-soft);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 92%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, white 80%, var(--surface-1)) 0%, color-mix(in srgb, var(--surface-2) 96%, transparent) 100%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 64%, transparent), var(--shadow-soft);
 }
 
 .view-switch__item {
@@ -1018,18 +1019,21 @@ onMounted(() => {
   border-radius: 999px;
   background: transparent;
   color: var(--text-secondary);
+  font-weight: 600;
   min-height: 2.5rem;
-  padding: 0.55rem 0.95rem;
+  padding: 0.55rem 0.98rem;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
   cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, color 160ms ease;
 }
 
 .view-switch__item.active {
-  background: color-mix(in srgb, var(--accent-text) 11%, var(--surface-1));
-  border-color: color-mix(in srgb, var(--accent-border) 72%, var(--border-subtle));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 13%, white) 0%, color-mix(in srgb, var(--accent-text) 9%, var(--surface-1)) 100%);
+  border-color: color-mix(in srgb, var(--accent-border) 76%, var(--border-subtle));
   color: var(--text-primary);
+  box-shadow: 0 10px 18px color-mix(in srgb, var(--accent-text) 9%, transparent);
 }
 
 .calendar-command__stats {
@@ -1082,20 +1086,23 @@ onMounted(() => {
 }
 
 .term-tab {
-  border: 1px solid var(--border-subtle);
-  background: color-mix(in srgb, var(--surface-1) 90%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 90%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, white 84%, var(--surface-1)) 0%, color-mix(in srgb, var(--surface-2) 94%, transparent) 100%);
   color: var(--text-secondary);
   border-radius: 999px;
   min-height: 2.35rem;
   padding: 0.55rem 0.95rem;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 62%, transparent);
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, color 160ms ease;
 }
 
 .term-tab.active {
-  background: color-mix(in srgb, var(--accent-text) 14%, var(--surface-1));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 15%, white) 0%, color-mix(in srgb, var(--accent-text) 11%, var(--surface-1)) 100%);
   border-color: var(--accent-border);
   color: var(--text-primary);
+  box-shadow: 0 10px 18px color-mix(in srgb, var(--accent-text) 8%, transparent);
 }
 
 .mode-note {
@@ -1327,12 +1334,30 @@ onMounted(() => {
   cursor: pointer;
 }
 
+.week-list-day__headline {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.16rem;
+}
+
+.week-list-day__weekday {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+}
+
 .week-list-day__head strong,
 .day-picker__item strong,
 .detail-summary-card strong,
 .timeline-item__head strong,
 .timeline-item__time strong {
   color: var(--text-primary);
+}
+
+.week-list-day__head strong {
+  font-size: 1rem;
+  line-height: 1.25;
 }
 
 .week-list-course strong {
@@ -1350,10 +1375,27 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 
+.week-list-day__head p {
+  font-size: 0.83rem;
+  line-height: 1.35;
+}
+
 .week-list-course p,
 .week-list-course small {
   margin: 0;
   color: var(--course-muted, var(--text-secondary));
+}
+
+.week-list-day__badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.week-list-day__badges .badge {
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 56%, transparent);
 }
 
 .week-list-day__courses {
@@ -1590,6 +1632,7 @@ onMounted(() => {
   .view-switch__item {
     flex: 1;
     justify-content: center;
+    padding-inline: 0.78rem;
   }
 
   .detail-hero {
@@ -1618,8 +1661,12 @@ onMounted(() => {
     gap: 0.65rem;
   }
 
+  .week-list-day__headline {
+    gap: 0.12rem;
+  }
+
   .week-list-day__badges {
-    gap: 0.45rem;
+    gap: 0.42rem;
   }
 
   .week-list-day__badges .badge {
