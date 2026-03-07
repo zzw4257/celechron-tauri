@@ -1012,15 +1012,48 @@ watch(accountScope, loadScholar);
   position: sticky;
   top: 0;
   background: color-mix(in srgb, white 88%, var(--surface-1));
+  border-bottom: 1px solid color-mix(in srgb, var(--border-strong) 80%, transparent);
   backdrop-filter: blur(8px);
 }
 
+.scholar-table tbody tr {
+  background: color-mix(in srgb, var(--surface-1) 96%, white 4%);
+}
+
 .scholar-table tbody tr:nth-child(odd) {
-  background: color-mix(in srgb, var(--surface-2) 74%, white 26%);
+  background: color-mix(in srgb, var(--surface-2) 78%, white 22%);
 }
 
 .scholar-table tbody tr:hover {
   background: color-mix(in srgb, var(--accent-text) 8%, var(--surface-1));
+}
+
+:global(html[data-theme='dark']) .scholar-table thead th {
+  background: color-mix(in srgb, #0d1728 88%, var(--surface-1));
+  color: color-mix(in srgb, white 94%, var(--text-primary));
+  border-bottom-color: color-mix(in srgb, white 18%, transparent);
+}
+
+:global(html[data-theme='dark']) .scholar-table tbody tr {
+  background: color-mix(in srgb, #0f1c30 86%, var(--surface-1));
+}
+
+:global(html[data-theme='dark']) .scholar-table tbody tr:nth-child(odd) {
+  background: color-mix(in srgb, #13243b 72%, var(--surface-2));
+}
+
+:global(html[data-theme='dark']) .scholar-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent-text) 12%, #12253d);
+}
+
+:global(html[data-theme='dark']) .scholar-table td,
+:global(html[data-theme='dark']) .scholar-table th {
+  color: color-mix(in srgb, white 92%, var(--text-primary));
+}
+
+:global(html[data-theme='dark']) .scholar-table .badge {
+  border-color: color-mix(in srgb, white 14%, var(--border-subtle));
+  box-shadow: none;
 }
 
 .scholar-table td:first-child {

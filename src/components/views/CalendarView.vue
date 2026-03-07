@@ -1220,18 +1220,12 @@ onMounted(() => {
   z-index: 4;
 }
 
-.timetable-board__corner,
-.timetable-board__day {
-  position: sticky;
-  top: 0;
-}
-
 .timetable-board__corner {
   z-index: 6;
 }
 
 .timetable-board__day {
-  z-index: 5;
+  z-index: 3;
   box-shadow: 0 10px 24px color-mix(in srgb, var(--accent-text) 6%, transparent);
 }
 

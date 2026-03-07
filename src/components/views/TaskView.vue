@@ -150,7 +150,7 @@ watch(accountScope, () => {
       </div>
     </header>
 
-    <SectionCard title="任务摘要" subtitle="首屏先看真正影响节奏的事。" dense>
+    <SectionCard class="task-summary-card" title="任务摘要" subtitle="首屏先看真正影响节奏的事。" dense>
       <div class="task-stats">
         <InlineStat label="总任务" :value="String(summary.total)" emphasis />
         <InlineStat label="24h 内" :value="String(summary.today)" />
@@ -159,16 +159,16 @@ watch(accountScope, () => {
       </div>
     </SectionCard>
 
-    <StatusBanner v-if="errorMsg" tone="danger" title="同步失败">
+    <StatusBanner class="task-feedback-banner" v-if="errorMsg" tone="danger" title="同步失败">
       {{ errorMsg }}
     </StatusBanner>
-    <StatusBanner v-else-if="refreshStatus" tone="warning" title="强制刷新回退">
+    <StatusBanner class="task-feedback-banner" v-else-if="refreshStatus" tone="warning" title="强制刷新回退">
       {{ refreshStatus }}
     </StatusBanner>
-    <StatusBanner v-else-if="isOffline && offlineTime" tone="warning" title="缓存回退">
+    <StatusBanner class="task-feedback-banner" v-else-if="isOffline && offlineTime" tone="warning" title="缓存回退">
       当前展示的是本地缓存，更新时间 {{ offlineTime }}。
     </StatusBanner>
-    <StatusBanner v-else-if="copiedId" tone="success" title="复制成功">
+    <StatusBanner class="task-feedback-banner" v-else-if="copiedId" tone="success" title="复制成功">
       已复制任务链接，可以直接粘贴给同学或在浏览器打开。
     </StatusBanner>
 
@@ -270,7 +270,7 @@ watch(accountScope, () => {
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .task-header-actions {
@@ -280,8 +280,33 @@ watch(accountScope, () => {
   flex-wrap: wrap;
 }
 
+.task-summary-card {
+  margin-bottom: 0.05rem;
+}
+
+.task-summary-card :deep(.section-card) {
+  padding-block: 0.82rem 0.88rem;
+}
+
+.task-summary-card :deep(.section-card__header) {
+  margin-bottom: 0.72rem;
+}
+
+.task-summary-card :deep(.inline-stat) {
+  padding: 0.74rem 0.8rem;
+  gap: 0.12rem;
+}
+
+.task-summary-card :deep(.inline-stat__value) {
+  font-size: 1rem;
+}
+
+.task-feedback-banner {
+  padding: 0.72rem 0.82rem;
+}
+
 .task-pomodoro-card {
-  margin-top: 0.25rem;
+  margin-top: 0.1rem;
 }
 
 .task-tool-toggle {
@@ -300,19 +325,19 @@ watch(accountScope, () => {
 .task-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.7rem;
+  gap: 0.58rem;
 }
 
 .task-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.9rem;
+  gap: 0.75rem;
   align-items: center;
-  padding: 0.95rem 1rem;
+  padding: 0.82rem 0.9rem;
   border: 1px solid color-mix(in srgb, var(--border-subtle) 90%, transparent);
   border-radius: calc(var(--radius-card-sm) + 2px);
   background: linear-gradient(160deg, color-mix(in srgb, white 86%, var(--surface-1)) 0%, var(--surface-1) 100%);
-  box-shadow: 0 14px 28px color-mix(in srgb, var(--accent-text) 6%, transparent);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--accent-text) 5%, transparent);
 }
 
 .task-card.overdue {
@@ -353,7 +378,7 @@ watch(accountScope, () => {
 
 .task-card__main p,
 .task-card__meta time {
-  margin: 0.28rem 0 0;
+  margin: 0.2rem 0 0;
   color: var(--text-secondary);
 }
 
@@ -365,7 +390,7 @@ watch(accountScope, () => {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.7rem;
+  gap: 0.6rem;
 }
 
 @media (max-width: 900px) {
