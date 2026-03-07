@@ -714,7 +714,7 @@ onMounted(() => {
       <div v-else-if="activePayload" class="calendar-main">
         <SectionCard class="calendar-stage" :title="calendarStageTitle" :subtitle="calendarStageSubtitle">
           <div v-if="calendarMode === 'table'" class="timetable-board-shell">
-            <div class="timetable-board" :style="{ gridTemplateRows: `76px repeat(${periodSlots.length}, minmax(84px, auto))` }">
+            <div class="timetable-board" :style="{ gridTemplateRows: `82px repeat(${periodSlots.length}, minmax(92px, auto))` }">
               <div class="timetable-board__corner">节次</div>
 
               <button
@@ -894,7 +894,7 @@ onMounted(() => {
 }
 
 .calendar-command-card {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-text) 8%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 3%, var(--surface-1)) 48%, var(--surface-2) 100%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-text) 6%, white) 0%, color-mix(in srgb, var(--accent-text) 2%, var(--surface-1)) 52%, var(--surface-2) 100%);
 }
 
 .calendar-command {
@@ -948,12 +948,12 @@ onMounted(() => {
 }
 
 .week-hero {
-  min-height: 7.75rem;
-  border: 1px solid color-mix(in srgb, var(--accent-border) 32%, var(--border-subtle));
-  border-radius: 30px;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--surface-1) 92%, var(--accent-text) 4%) 0%, color-mix(in srgb, var(--surface-2) 92%, var(--accent-text) 8%) 100%);
-  padding: 1.1rem 1.35rem;
-  box-shadow: 0 24px 44px color-mix(in srgb, var(--accent-text) 10%, transparent);
+  min-height: 7.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent-border) 28%, var(--border-subtle));
+  border-radius: 32px;
+  background: linear-gradient(160deg, color-mix(in srgb, white 82%, var(--surface-1)) 0%, color-mix(in srgb, var(--surface-2) 94%, var(--accent-text) 6%) 100%);
+  padding: 1.15rem 1.4rem;
+  box-shadow: 0 24px 44px color-mix(in srgb, var(--accent-text) 8%, transparent);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1112,7 +1112,7 @@ onMounted(() => {
 }
 
 .calendar-stage {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 4%, var(--surface-1)) 0%, var(--surface-1) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 3%, var(--surface-1)) 0%, var(--surface-1) 100%);
 }
 
 .calendar-detail {
@@ -1123,16 +1123,17 @@ onMounted(() => {
 
 .timetable-board-shell {
   overflow-x: auto;
-  padding: 0.3rem 0.15rem 0.4rem;
-  border-radius: 30px;
-  background: linear-gradient(145deg, color-mix(in srgb, var(--accent-text) 8%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 3%, var(--surface-1)) 100%);
+  padding: 0.45rem 0.3rem 0.55rem;
+  border-radius: 32px;
+  background: linear-gradient(145deg, color-mix(in srgb, white 72%, var(--surface-1)) 0%, color-mix(in srgb, var(--accent-text) 2%, var(--surface-1)) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent-border) 14%, var(--border-subtle));
 }
 
 .timetable-board {
   display: grid;
-  grid-template-columns: 84px repeat(7, minmax(136px, 1fr));
-  gap: 0.65rem;
-  min-width: 1140px;
+  grid-template-columns: 88px repeat(7, minmax(142px, 1fr));
+  gap: 0.7rem;
+  min-width: 1180px;
 }
 
 .timetable-board__corner,
@@ -1145,7 +1146,7 @@ onMounted(() => {
 
 .timetable-board__corner,
 .timetable-board__time {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 96%, white) 0%, var(--surface-2) 100%);
+  background: linear-gradient(180deg, color-mix(in srgb, white 86%, var(--surface-1)) 0%, color-mix(in srgb, var(--surface-2) 94%, white) 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1157,21 +1158,24 @@ onMounted(() => {
 .timetable-board__corner {
   grid-column: 1;
   grid-row: 1;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .timetable-board__time strong {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 .timetable-board__time span {
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
 }
 
 .timetable-board__day {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 96%, white) 0%, var(--surface-2) 100%);
-  padding: 0.85rem 0.75rem;
+  background: linear-gradient(180deg, color-mix(in srgb, white 86%, var(--surface-1)) 0%, color-mix(in srgb, var(--surface-2) 95%, white) 100%);
+  padding: 0.9rem 0.78rem 0.82rem;
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -1183,11 +1187,20 @@ onMounted(() => {
 
 .timetable-board__day strong {
   color: var(--text-primary);
+  font-size: 1.02rem;
 }
 
 .timetable-board__day span,
 .timetable-board__day small {
   color: var(--text-secondary);
+}
+
+.timetable-board__day span {
+  font-size: 0.84rem;
+}
+
+.timetable-board__day small {
+  font-size: 0.78rem;
 }
 
 .timetable-board__day.today {
@@ -1200,8 +1213,8 @@ onMounted(() => {
 }
 
 .timetable-board__cell {
-  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
-  border-color: color-mix(in srgb, var(--border-subtle) 80%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, white 78%, var(--surface-1)) 0%, color-mix(in srgb, var(--surface-1) 96%, var(--surface-2)) 100%);
+  border-color: color-mix(in srgb, var(--border-subtle) 76%, transparent);
 }
 
 .timetable-board__cell.selected {
@@ -1217,11 +1230,11 @@ onMounted(() => {
 
 .timetable-course-block {
   border: 1px solid var(--course-border, color-mix(in srgb, var(--course-accent, var(--accent-text)) 40%, var(--border-subtle)));
-  border-radius: 20px;
+  border-radius: 22px;
   background: linear-gradient(165deg, var(--course-surface-strong, color-mix(in srgb, var(--course-accent, var(--accent-text)) 18%, white)) 0%, var(--course-surface, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1))) 100%);
   color: var(--course-text, var(--text-primary));
   box-shadow: 0 18px 34px var(--course-shadow, color-mix(in srgb, var(--course-accent, var(--accent-text)) 14%, transparent));
-  padding: 0.9rem 0.85rem;
+  padding: 0.95rem 0.9rem;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -1259,8 +1272,9 @@ onMounted(() => {
 }
 
 .timetable-course-block__period {
-  font-size: 0.82rem;
-  font-weight: 600;
+  font-size: 0.79rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .week-list {
@@ -1270,7 +1284,7 @@ onMounted(() => {
 }
 
 .week-list-day {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 82%, transparent);
   border-radius: var(--radius-card-sm);
   background: linear-gradient(165deg, color-mix(in srgb, var(--accent-text) 7%, var(--surface-1)) 0%, var(--surface-2) 100%);
   padding: 0.95rem;
