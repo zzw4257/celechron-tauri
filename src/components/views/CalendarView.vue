@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import ActionPill from '../ui/ActionPill.vue';
 import InlineStat from '../ui/InlineStat.vue';
 import SectionCard from '../ui/SectionCard.vue';
+import SegmentedFilter from '../ui/SegmentedFilter.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import { fetchScholarData, fetchTimetable, fetchTodos } from '../../services/api';
 import type { ScholarPayload, TodoItem, TimetablePayload } from '../../types/api';
@@ -63,9 +64,14 @@ const anchorInfo = ref<ReturnType<typeof resolveTermAnchor> | null>(null);
 const baseOffline = ref(false);
 const timetableOffline = ref(false);
 const refreshStatus = ref('');
+const calendarMode = ref<'table' | 'list'>('table');
 
 const timetableCache = new Map<string, TimetablePayload>();
 const timetableMetaCache = new Map<string, 'network' | 'cache' | 'unknown'>();
+
+function setCalendarMode(value: 'table' | 'list') {
+  calendarMode.value = value;
+}
 
 function formatReason(reason: unknown) {
   if (!reason) return '未知错误';
@@ -413,27 +419,54 @@ const periodRows = computed(() => {
   return Array.from({ length: maxPeriod }, (_, index) => index + 1);
 });
 
-function matrixCourseAt(dateKey: string, period: number) {
-  const day = weekDays.value.find((item) => item.dateKey === dateKey);
-  if (!day) return null;
-  return day.courses.find((course) => course.session.startPeriod === period) || null;
-}
+const periodSlots = computed(() => {
+  const slotMap = new Map((activePayload.value?.timeConfig?.sessionTimes || []).map((slot) => [slot.index, slot]));
+  return periodRows.value.map((index) => ({
+    index,
+    start: slotMap.get(index)?.start || '--:--',
+    end: slotMap.get(index)?.end || '--:--',
+  }));
+});
 
-function matrixCovered(dateKey: string, period: number) {
-  const day = weekDays.value.find((item) => item.dateKey === dateKey);
-  if (!day) return false;
-  return day.courses.some((course) => course.session.startPeriod < period && course.session.endPeriod >= period);
-}
+const tableBackgroundCells = computed(() => {
+  return weekDays.value.flatMap((day, dayIndex) => periodSlots.value.map((slot) => ({
+    id: `${day.dateKey}-${slot.index}`,
+    dateKey: day.dateKey,
+    column: String(dayIndex + 2),
+    row: String(slot.index + 1),
+    selected: day.isSelected,
+  })));
+});
+
+const tableCourseBlocks = computed(() => {
+  return weekDays.value.flatMap((day, dayIndex) => day.courses.map((course) => ({
+    id: course.id,
+    dateKey: day.dateKey,
+    tone: courseTone(course.session.xkkh || course.session.courseName),
+    column: String(dayIndex + 2),
+    row: `${course.session.startPeriod + 1} / ${course.session.endPeriod + 2}`,
+    periodLabel: course.session.startPeriod === course.session.endPeriod
+      ? `第${course.session.startPeriod}节`
+      : `第${course.session.startPeriod}-${course.session.endPeriod}节`,
+    start: course.startSlot?.start || '--:--',
+    end: course.endSlot?.end || '--:--',
+    course,
+  })));
+});
 
 const selectedDay = computed(() => weekDays.value.find((item) => item.dateKey === selectedDateKey.value) || weekDays.value[0] || null);
-const selectedDayCourseCount = computed(() => selectedDay.value?.courses.length || 0);
 const selectedDayItemsCount = computed(() => (selectedDay.value?.courses.length || 0) + (selectedDay.value?.todos.length || 0) + (selectedDay.value?.exams.length || 0));
 const weekCourseCount = computed(() => weekDays.value.reduce((sum, item) => sum + item.courses.length, 0));
 const weekPeriodCount = computed(() => weekDays.value.reduce((sum, item) => sum + item.courses.reduce((courseSum, course) => courseSum + (course.session.endPeriod - course.session.startPeriod + 1), 0), 0));
 const weekTodoCount = computed(() => weekDays.value.reduce((sum, item) => sum + item.todos.length, 0));
+const weekExamCount = computed(() => weekDays.value.reduce((sum, item) => sum + item.exams.length, 0));
 const selectedDayLabel = computed(() => {
   if (!selectedDay.value) return '未选择日期';
   return `${formatDayLabel(selectedDay.value.date)} ${selectedDay.value.label}`;
+});
+const selectedDaySubtitle = computed(() => {
+  if (!selectedDay.value) return '未选择日期';
+  return `课程 ${selectedDay.value.courses.length} 项 · 任务 ${selectedDay.value.todos.length} 项 · 考试 ${selectedDay.value.exams.length} 项`;
 });
 const anchorLabel = computed(() => {
   if (!anchorInfo.value) return '未加载';
@@ -441,6 +474,18 @@ const anchorLabel = computed(() => {
   if (anchorInfo.value.source === 'remote') return '远程时间配置';
   return '默认时间配置';
 });
+const calendarStageTitle = computed(() => (calendarMode.value === 'table' ? '周课表' : '列表模式'));
+const calendarStageSubtitle = computed(() => {
+  const title = activePayload.value?.displayName || activeTerm.value?.displayName || '当前学期';
+  return calendarMode.value === 'table'
+    ? `${title} · 恢复原来的表格课表，按星期与节次直接看整周分布。`
+    : `${title} · 列表模式更适合移动端快速扫今天和本周安排。`;
+});
+const calendarModeNote = computed(() => (
+  calendarMode.value === 'table'
+    ? '表格模式适合看整周节次分布；点课程块后，下方详情会同步切到对应日期。'
+    : '列表模式适合手机快速浏览；需要完整周课表时随时切回表格。'
+));
 
 watch([manualSemesterAnchors, timeConfigMode], () => {
   if (activePayload.value) {
@@ -457,6 +502,9 @@ watch(accountScope, () => {
 });
 
 onMounted(() => {
+  if (window.innerWidth <= 860) {
+    calendarMode.value = 'list';
+  }
   void loadCalendar();
 });
 </script>
@@ -466,7 +514,7 @@ onMounted(() => {
     <header class="page-header">
       <div>
         <h1>日程</h1>
-        <p class="page-subtitle">保留列表模式，同时补回一周七天按节次展开的周日历模式。</p>
+        <p class="page-subtitle">课表恢复为表格主视图，列表模式改为切换项，不再和表格上下堆叠。</p>
       </div>
       <div class="calendar-header-actions">
         <ActionPill tone="accent" :disabled="isLoading || isLoadingTerm" @click="forceRefreshCalendar">强制刷新</ActionPill>
@@ -516,24 +564,21 @@ onMounted(() => {
       <div class="calendar-stats">
         <InlineStat label="当前学期" :value="activePayload?.displayName || activeTerm?.displayName || '未加载'" :hint="weekRangeLabel" emphasis />
         <InlineStat label="本周课程" :value="String(weekCourseCount)" :hint="`${weekPeriodCount} 节课时`" />
-        <InlineStat label="待办 / 考试" :value="`${weekTodoCount} / ${normalizedExams.length}`" :hint="selectedDayLabel" />
+        <InlineStat label="待办 / 考试" :value="`${weekTodoCount} / ${weekExamCount}`" :hint="selectedDayLabel" />
         <InlineStat label="时间基准" :value="anchorLabel" :hint="anchorInfo?.key || '未加载'" />
       </div>
 
-      <SectionCard v-if="!isLoadingTerm && activePayload" dense title="周组合视图" subtitle="列表模式、周日历模式和当天详情共享同一个焦点日期。">
-        <div class="focus-strip">
-          <button
-            v-for="day in weekDays"
-            :key="`focus-${day.dateKey}`"
-            type="button"
-            class="focus-pill"
-            :class="{ active: day.isSelected, today: day.isToday }"
-            @click="selectedDateKey = day.dateKey"
-          >
-            <strong>{{ day.label }}</strong>
-            <span>{{ formatDayLabel(day.date) }}</span>
-            <small>{{ day.courses.length }} 课 · {{ day.todos.length }} 任务 · {{ day.exams.length }} 考试</small>
-          </button>
+      <SectionCard v-if="!isLoadingTerm && activePayload" dense title="视图模式" subtitle="周课表与列表模式可切换；移动端更适合列表，桌面端更适合表格。">
+        <div class="calendar-mode-toolbar">
+          <SegmentedFilter
+            :model-value="calendarMode"
+            :options="[
+              { value: 'table', label: '周课表' },
+              { value: 'list', label: '列表模式' },
+            ]"
+            @update:model-value="setCalendarMode($event as 'table' | 'list')"
+          />
+          <p class="mode-note">{{ calendarModeNote }}</p>
         </div>
       </SectionCard>
 
@@ -541,21 +586,78 @@ onMounted(() => {
         <div class="state-card">请稍候，正在重新构建本周视图。</div>
       </SectionCard>
 
-      <div v-else-if="activePayload" class="calendar-layout">
-        <SectionCard title="列表模式" :subtitle="`${activePayload.displayName} · ${weekRangeLabel}`">
-          <div class="week-grid">
+      <div v-else-if="activePayload" class="calendar-main">
+        <SectionCard class="calendar-stage" :title="calendarStageTitle" :subtitle="calendarStageSubtitle">
+          <div v-if="calendarMode === 'table'" class="timetable-board-shell">
+            <div class="timetable-board" :style="{ gridTemplateRows: `76px repeat(${periodSlots.length}, minmax(84px, auto))` }">
+              <div class="timetable-board__corner">节次</div>
+
+              <button
+                v-for="(day, dayIndex) in weekDays"
+                :key="`day-head-${day.dateKey}`"
+                type="button"
+                class="timetable-board__day"
+                :class="{ today: day.isToday, selected: day.isSelected }"
+                :style="{ gridColumn: String(dayIndex + 2), gridRow: '1' }"
+                @click="selectedDateKey = day.dateKey"
+              >
+                <strong>{{ day.label }}</strong>
+                <span>{{ formatDayLabel(day.date) }}</span>
+                <small>{{ day.courses.length }} 课 · {{ day.todos.length }} 任务 · {{ day.exams.length }} 考试</small>
+              </button>
+
+              <div
+                v-for="slot in periodSlots"
+                :key="`time-${slot.index}`"
+                class="timetable-board__time"
+                :style="{ gridColumn: '1', gridRow: String(slot.index + 1) }"
+              >
+                <strong>{{ slot.index }}</strong>
+                <span>{{ slot.start }}</span>
+              </div>
+
+              <div
+                v-for="cell in tableBackgroundCells"
+                :key="cell.id"
+                class="timetable-board__cell"
+                :class="{ selected: cell.selected }"
+                :style="{ gridColumn: cell.column, gridRow: cell.row }"
+              ></div>
+
+              <button
+                v-for="block in tableCourseBlocks"
+                :key="block.id"
+                type="button"
+                class="timetable-course-block"
+                :class="{ selected: block.dateKey === selectedDateKey }"
+                :style="{
+                  gridColumn: block.column,
+                  gridRow: block.row,
+                  '--course-accent': block.tone,
+                }"
+                @click="selectedDateKey = block.dateKey"
+              >
+                <span class="timetable-course-block__period">{{ block.periodLabel }}</span>
+                <strong>{{ block.course.session.courseName }}</strong>
+                <small>{{ block.start }} - {{ block.end }}</small>
+                <small>{{ block.course.session.location || '地点待定' }}</small>
+              </button>
+            </div>
+          </div>
+
+          <div v-else class="week-list">
             <article
               v-for="day in weekDays"
               :key="day.dateKey"
-              class="day-column"
+              class="week-list-day"
               :class="{ today: day.isToday, selected: day.isSelected }"
             >
-              <button type="button" class="day-column__head" @click="selectedDateKey = day.dateKey">
+              <button type="button" class="week-list-day__head" @click="selectedDateKey = day.dateKey">
                 <div>
                   <strong>{{ day.label }}</strong>
                   <p>{{ formatDayLabel(day.date) }}</p>
                 </div>
-                <div class="day-column__meta">
+                <div class="week-list-day__badges">
                   <span class="badge" :class="day.courses.length ? 'accent' : ''">{{ day.courses.length }} 节</span>
                   <span v-if="day.isToday" class="badge accent">今天</span>
                   <span v-if="day.todos.length" class="badge danger">{{ day.todos.length }} 任务</span>
@@ -563,63 +665,42 @@ onMounted(() => {
                 </div>
               </button>
 
-              <div v-if="day.courses.length" class="day-course-list">
+              <div v-if="day.courses.length" class="week-list-day__courses">
                 <button
                   v-for="course in day.courses"
                   :key="course.id"
                   type="button"
-                  class="course-card"
+                  class="week-list-course"
                   :style="{ '--course-accent': courseTone(course.session.xkkh || course.session.courseName) }"
                   @click="selectedDateKey = day.dateKey"
                 >
-                  <strong>{{ course.session.courseName }}</strong>
-                  <p>{{ course.startSlot?.start || '--:--' }} - {{ course.endSlot?.end || '--:--' }}</p>
+                  <div>
+                    <strong>{{ course.session.courseName }}</strong>
+                    <p>{{ course.startSlot?.start || '--:--' }} - {{ course.endSlot?.end || '--:--' }} · 第{{ course.session.startPeriod }}-{{ course.session.endPeriod }}节</p>
+                  </div>
                   <small>{{ course.session.location || '地点待定' }}</small>
                 </button>
               </div>
-              <div v-else class="day-empty">今日无课</div>
+              <div v-else class="day-empty compact">今日无课，右侧 / 下方详情仍会展示任务与考试。</div>
             </article>
           </div>
         </SectionCard>
 
-        <SectionCard class="calendar-matrix-card" title="周日历模式" subtitle="保留原来的七天 x 节次矩阵，课程卡片可点击联动右侧当天详情。" dense>
-          <div class="timetable-matrix">
-            <div class="timetable-matrix__head period">节次</div>
-            <div
+        <SectionCard class="calendar-detail" :title="selectedDayLabel" :subtitle="selectedDaySubtitle">
+          <div class="day-picker">
+            <button
               v-for="day in weekDays"
-              :key="`head-${day.dateKey}`"
-              class="timetable-matrix__head"
-              :class="{ today: day.isToday, selected: day.isSelected }"
+              :key="`picker-${day.dateKey}`"
+              type="button"
+              class="day-picker__item"
+              :class="{ active: day.isSelected, today: day.isToday }"
               @click="selectedDateKey = day.dateKey"
             >
               <strong>{{ day.label }}</strong>
-              <small>{{ formatDayLabel(day.date) }}</small>
-            </div>
-            <template v-for="period in periodRows" :key="`period-${period}`">
-              <div class="timetable-matrix__period">第{{ period }}节</div>
-              <div
-                v-for="day in weekDays"
-                :key="`${day.dateKey}-${period}`"
-                class="timetable-matrix__cell"
-                :class="{ selected: day.isSelected }"
-              >
-                <button
-                  v-if="matrixCourseAt(day.dateKey, period)"
-                  type="button"
-                  class="matrix-course-card"
-                  :style="{ '--course-accent': courseTone(matrixCourseAt(day.dateKey, period)?.session.xkkh || matrixCourseAt(day.dateKey, period)?.session.courseName || '') }"
-                  @click="selectedDateKey = day.dateKey"
-                >
-                  <strong>{{ matrixCourseAt(day.dateKey, period)?.session.courseName }}</strong>
-                  <small>{{ matrixCourseAt(day.dateKey, period)?.startSlot?.start || '--:--' }} - {{ matrixCourseAt(day.dateKey, period)?.endSlot?.end || '--:--' }}</small>
-                </button>
-                <div v-else-if="matrixCovered(day.dateKey, period)" class="matrix-course-card matrix-course-card--ghost"></div>
-              </div>
-            </template>
+              <span>{{ formatDayLabel(day.date) }}</span>
+            </button>
           </div>
-        </SectionCard>
 
-        <SectionCard :title="selectedDayLabel" :subtitle="`当天共 ${selectedDayItemsCount} 项安排，课程 ${selectedDayCourseCount} 项。列表与周日历都会联动到这里。`">
           <div v-if="!selectedDayItemsCount" class="state-card">这一天没有课程、任务或考试安排。</div>
 
           <div v-else class="agenda-groups">
@@ -670,23 +751,21 @@ onMounted(() => {
   gap: 1rem;
 }
 
-.calendar-header-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
+.calendar-header-actions,
 .calendar-toolbar,
 .week-actions,
 .term-tabs,
+.calendar-mode-toolbar,
 .calendar-stats,
-.day-column__meta,
-.agenda-groups,
+.week-list-day__badges,
 .agenda-group {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.calendar-header-actions {
+  align-items: center;
 }
 
 .calendar-toolbar {
@@ -734,300 +813,322 @@ onMounted(() => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.calendar-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.1fr);
-  gap: 1rem;
-  align-items: start;
+.calendar-mode-toolbar {
+  align-items: center;
+  justify-content: space-between;
 }
 
-.calendar-matrix-card {
-  grid-column: 1 / -1;
-}
-
-.week-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.75rem;
-}
-
-.day-column {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card-sm);
-  background: linear-gradient(165deg, color-mix(in srgb, var(--accent-text) 8%, var(--surface-1)) 0%, var(--surface-2) 100%);
-  padding: 0.9rem;
-  box-shadow: var(--shadow-soft);
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  min-height: 15rem;
-}
-
-.day-column.today {
-  border-color: var(--accent-border);
-}
-
-.day-column.selected {
-  background: var(--surface-accent);
-  box-shadow: inset 0 0 0 1px var(--accent-border);
-}
-
-.day-column__head {
-  border: none;
-  background: transparent;
-  text-align: left;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.day-column__head strong,
-.agenda-group h3,
-.course-card strong,
-.agenda-item strong {
-  color: var(--text-primary);
-}
-
-.day-column__head p,
-.course-card p,
-.course-card small,
-.agenda-item p,
-.agenda-item small {
+.mode-note {
   margin: 0;
   color: var(--text-secondary);
 }
 
-.day-course-list,
+.calendar-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.95fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.calendar-detail {
+  position: sticky;
+  top: calc(var(--safe-top, 0px) + 1rem);
+}
+
+.timetable-board-shell {
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.timetable-board {
+  display: grid;
+  grid-template-columns: 82px repeat(7, minmax(132px, 1fr));
+  gap: 0.55rem;
+  min-width: 1120px;
+}
+
+.timetable-board__corner,
+.timetable-board__day,
+.timetable-board__time,
+.timetable-board__cell {
+  border-radius: var(--radius-card-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.timetable-board__corner,
+.timetable-board__time {
+  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  color: var(--text-primary);
+}
+
+.timetable-board__corner {
+  grid-column: 1;
+  grid-row: 1;
+  font-weight: 600;
+}
+
+.timetable-board__time strong {
+  font-size: 1.1rem;
+}
+
+.timetable-board__time span {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.timetable-board__day {
+  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
+  padding: 0.85rem 0.75rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.timetable-board__day strong {
+  color: var(--text-primary);
+}
+
+.timetable-board__day span,
+.timetable-board__day small {
+  color: var(--text-secondary);
+}
+
+.timetable-board__day.today {
+  border-color: color-mix(in srgb, var(--accent-border) 82%, var(--border-subtle));
+}
+
+.timetable-board__day.selected {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-text) 10%, var(--surface-1)) 0%, var(--surface-accent) 100%);
+  border-color: var(--accent-border);
+}
+
+.timetable-board__cell {
+  background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+}
+
+.timetable-board__cell.selected {
+  background: color-mix(in srgb, var(--accent-text) 6%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--accent-border) 65%, var(--border-subtle));
+}
+
+.timetable-course-block {
+  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 36%, var(--border-subtle));
+  border-radius: var(--radius-card-sm);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 16%, var(--surface-1)) 0%, color-mix(in srgb, var(--course-accent, var(--accent-text)) 8%, var(--surface-1)) 100%);
+  color: var(--text-primary);
+  box-shadow: 0 18px 34px color-mix(in srgb, var(--course-accent, var(--accent-text)) 12%, transparent);
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.45rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timetable-course-block.selected {
+  box-shadow: 0 20px 36px color-mix(in srgb, var(--course-accent, var(--accent-text)) 18%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--course-accent, var(--accent-text)) 42%, white);
+}
+
+.timetable-course-block strong {
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.timetable-course-block small,
+.timetable-course-block__period {
+  color: var(--text-secondary);
+}
+
+.timetable-course-block__period {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.week-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+}
+
+.week-list-day {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card-sm);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--accent-text) 7%, var(--surface-1)) 0%, var(--surface-2) 100%);
+  padding: 0.95rem;
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.week-list-day.today {
+  border-color: color-mix(in srgb, var(--accent-border) 82%, var(--border-subtle));
+}
+
+.week-list-day.selected {
+  border-color: var(--accent-border);
+  background: linear-gradient(165deg, color-mix(in srgb, var(--accent-text) 10%, var(--surface-1)) 0%, var(--surface-accent) 100%);
+}
+
+.week-list-day__head {
+  border: none;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.week-list-day__head strong,
+.week-list-course strong,
+.day-picker__item strong,
+.agenda-group h3,
+.agenda-item strong {
+  color: var(--text-primary);
+}
+
+.week-list-day__head p,
+.week-list-course p,
+.week-list-course small,
+.day-picker__item span,
+.agenda-item p,
+.agenda-item small,
+.day-empty {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.week-list-day__courses,
+.agenda-groups,
 .agenda-group {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
 }
 
-.course-card,
+.week-list-course,
 .agenda-item {
-  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 26%, var(--border-subtle));
+  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 28%, var(--border-subtle));
   border-radius: var(--radius-card-sm);
   background: linear-gradient(160deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, var(--surface-1)) 0%, var(--surface-1) 100%);
   padding: 0.8rem 0.9rem;
   text-align: left;
-  box-shadow: 0 14px 30px color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, transparent);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--course-accent, var(--accent-text)) 9%, transparent);
 }
 
-.course-card {
+.week-list-course {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
   cursor: pointer;
 }
 
+.day-picker {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.9rem;
+}
+
+.day-picker__item {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card-sm);
+  background: var(--surface-2);
+  padding: 0.7rem 0.55rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  cursor: pointer;
+}
+
+.day-picker__item.today {
+  border-color: color-mix(in srgb, var(--accent-border) 80%, var(--border-subtle));
+}
+
+.day-picker__item.active {
+  background: var(--surface-accent);
+  border-color: var(--accent-border);
+}
+
 .agenda-item.warning {
-  border-left-color: var(--warning-text);
+  --course-accent: var(--warning-text);
 }
 
 .agenda-item.danger {
-  border-left-color: var(--danger-text);
+  --course-accent: var(--danger-text);
 }
 
 .day-empty {
-  color: var(--text-secondary);
   border: 1px dashed var(--border-subtle);
   border-radius: var(--radius-card-sm);
   background: var(--surface-1);
   padding: 0.9rem;
 }
-.focus-strip {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.7rem;
-}
 
-.focus-pill {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card-sm);
-  background: linear-gradient(180deg, var(--surface-1) 0%, var(--surface-2) 100%);
-  padding: 0.85rem;
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 0.28rem;
-  box-shadow: var(--shadow-soft);
-  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
-}
-
-.focus-pill strong {
-  color: var(--text-primary);
-}
-
-.focus-pill span,
-.focus-pill small {
-  color: var(--text-secondary);
-}
-
-.focus-pill.today {
-  border-color: color-mix(in srgb, var(--accent-border) 82%, var(--border-subtle));
-}
-
-.focus-pill.active {
-  background: linear-gradient(160deg, color-mix(in srgb, var(--accent-text) 12%, var(--surface-1)) 0%, var(--surface-accent) 100%);
-  border-color: var(--accent-border);
-  box-shadow: 0 16px 34px color-mix(in srgb, var(--accent-text) 10%, transparent);
-  transform: translateY(-1px);
-}
-
-.focus-pill:hover {
-  border-color: var(--border-strong);
-}
-
-.timetable-matrix {
-  display: grid;
-  grid-template-columns: 84px repeat(7, minmax(120px, 1fr));
-  gap: 0.55rem;
-  align-items: stretch;
-}
-
-.timetable-matrix__head,
-.timetable-matrix__period,
-.timetable-matrix__cell {
-  min-height: 72px;
-}
-
-.timetable-matrix__head,
-.timetable-matrix__period {
-  border-radius: var(--radius-card-sm);
-  border: 1px solid var(--border-subtle);
-  background: var(--surface-2);
-  color: var(--text-primary);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 0.2rem;
-  padding: 0.65rem;
-}
-
-.timetable-matrix__head {
-  cursor: pointer;
-}
-
-.timetable-matrix__head small {
-  color: var(--text-secondary);
-}
-
-.timetable-matrix__head.today,
-.timetable-matrix__head.selected {
-  border-color: var(--accent-border);
-}
-
-.timetable-matrix__head.selected {
-  background: var(--surface-accent);
-}
-
-.timetable-matrix__cell {
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 88%, transparent);
-  border-radius: var(--radius-card-sm);
-  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
-  padding: 0.25rem;
-}
-
-.timetable-matrix__cell.selected {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-border) 72%, transparent);
-}
-
-.matrix-course-card {
-  width: 100%;
-  min-height: 100%;
-  border: 1px solid color-mix(in srgb, var(--course-accent, var(--accent-text)) 30%, var(--border-subtle));
-  border-radius: calc(var(--radius-card-sm) - 2px);
-  background: linear-gradient(160deg, color-mix(in srgb, var(--course-accent, var(--accent-text)) 12%, var(--surface-1)) 0%, var(--surface-1) 100%);
-  color: var(--text-primary);
-  text-align: left;
-  padding: 0.55rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.28rem;
-  cursor: pointer;
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--course-accent, var(--accent-text)) 10%, transparent);
-}
-
-.matrix-course-card strong {
-  color: var(--text-primary);
-  line-height: 1.25;
-}
-
-.matrix-course-card small {
-  color: var(--text-secondary);
-}
-
-.matrix-course-card--ghost {
-  border-style: dashed;
-  opacity: 0.4;
-  box-shadow: none;
-}
-
-.agenda-groups {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.9rem;
-}
-
-.agenda-group {
-  min-width: 0;
-}
-
-.agenda-group h3 {
-  margin: 0;
+.day-empty.compact {
+  padding: 0.75rem 0.85rem;
 }
 
 @media (max-width: 1440px) {
-  .focus-strip,
-  .week-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .timetable-matrix {
-    grid-template-columns: 84px repeat(7, minmax(110px, 1fr));
-    overflow-x: auto;
+  .calendar-main {
+    grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.95fr);
   }
 }
 
-@media (max-width: 1100px) {
-  .timetable-matrix {
-    grid-template-columns: 84px repeat(7, minmax(110px, 1fr));
-    overflow-x: auto;
-  }
-  .calendar-layout {
+@media (max-width: 1180px) {
+  .calendar-main {
     grid-template-columns: 1fr;
   }
 
-  .calendar-stats,
-  .agenda-groups {
+  .calendar-detail {
+    position: static;
+  }
+
+  .day-picker {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .calendar-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .focus-strip,
-  .week-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .calendar-mode-toolbar {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
 @media (max-width: 720px) {
-  .calendar-stats,
-  .week-grid,
-  .focus-strip,
-  .agenda-groups {
-    grid-template-columns: 1fr;
-  }
-
   .calendar-toolbar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .week-actions {
-    justify-content: flex-start;
+  .calendar-stats,
+  .week-list,
+  .day-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .week-list-course {
+    flex-direction: column;
   }
 }
 </style>
